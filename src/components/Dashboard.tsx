@@ -1,7 +1,10 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { MotionConfig } from 'motion/react';
 import type { AgentEvent, SessionSummary, SourceKind } from '@/lib/ui-types';
 import { SessionNav } from './SessionNav';
+
+const MAX_LIVE_EVENTS = 500; // per-key cap so a long-running dashboard stays bounded
 
 export function Dashboard() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -19,10 +22,18 @@ export function Dashboard() {
 
     const es = new EventSource('/api/stream');
     es.onmessage = (m) => {
-      const d = JSON.parse(m.data);
+      let d;
+      try {
+        d = JSON.parse(m.data);
+      } catch {
+        return; // ignore malformed frames
+      }
       if (d.type === 'sessions') setSessions(d.sessions);
       else if (d.type === 'events') {
-        setLiveEvents((prev) => ({ ...prev, [d.key]: [...(prev[d.key] ?? []), ...d.events] }));
+        setLiveEvents((prev) => ({
+          ...prev,
+          [d.key]: [...(prev[d.key] ?? []), ...d.events].slice(-MAX_LIVE_EVENTS),
+        }));
       }
     };
     return () => { cancelled = true; es.close(); };
@@ -43,8 +54,11 @@ export function Dashboard() {
       if (visible.length === 0) return;
       const idx = visible.findIndex((s) => s.key === selectedKey);
       const delta = e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1;
-      const next = visible[(idx + delta + visible.length) % visible.length] ?? visible[0];
-      setSelectedKey(next.key);
+      // with no current selection, down starts at the top and up at the bottom
+      const nextIdx = idx === -1
+        ? (delta > 0 ? 0 : visible.length - 1)
+        : (idx + delta + visible.length) % visible.length;
+      setSelectedKey(visible[nextIdx].key);
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
@@ -52,6 +66,7 @@ export function Dashboard() {
   }, [visible, selectedKey]);
 
   return (
+    <MotionConfig reducedMotion="user">
     <div style={{ display: 'flex', background: 'var(--bg)' }}>
       <SessionNav
         sessions={sessions}
@@ -81,6 +96,7 @@ export function Dashboard() {
         )}
       </main>
     </div>
+    </MotionConfig>
   );
 }
 
