@@ -89,6 +89,18 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
             )}
           </button>
         ))}
+        {session?.source === 'desktop' && (
+          <button
+            className="desktop-open-btn"
+            onClick={() => fetch('/api/open-desktop', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionId: session?.sessionId ?? null }),
+            })}
+          >
+            Open in Claude Desktop
+          </button>
+        )}
         <span style={{
           marginLeft: 'auto', fontSize: 10.5, color: 'var(--text-faint)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', direction: 'rtl',
