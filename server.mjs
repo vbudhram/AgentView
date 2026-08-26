@@ -11,15 +11,18 @@ const server = createServer((req, res) => handle(req, res));
 
 const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url, 'http://localhost');
+  let url;
+  try { url = new URL(req.url, 'http://localhost'); } catch { socket.destroy(); return; }
   // Other upgrades (e.g. Next's /_next/hmr socket in dev) belong to Next's
-  // own upgrade listener; only /ws/term is ours.
-  if (url.pathname !== '/ws/term') return;
+  // own upgrade listener; only /ws/term is ours. In production nothing else
+  // listens, so destroy unmatched upgrades instead of leaving them hanging.
+  if (url.pathname !== '/ws/term') { if (!dev) socket.destroy(); return; }
   wss.handleUpgrade(req, socket, head, (ws) => {
+    ws.on('error', () => {});
     // The warm-up fetch boots the runtime inside Next's module graph,
     // which sets globalThis.__agentview for this handler.
     const rt = globalThis.__agentview;
-    const key = decodeURIComponent(url.searchParams.get('key') ?? '');
+    const key = url.searchParams.get('key') ?? '';
     const bridge = rt?.bridge?.forSessionKey(key);
     if (!bridge) { ws.close(4004, 'not steerable'); return; }
     ws.send(bridge.scrollback());
