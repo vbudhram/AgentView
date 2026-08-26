@@ -19,6 +19,9 @@ export function parseClaudeLine(line: string): ParsedLine {
   } catch {
     return { events: [] };
   }
+  if (d === null || typeof d !== 'object') {
+    return { events: [] };
+  }
   const ts: string = d.timestamp ?? new Date(0).toISOString();
   const events: AgentEvent[] = [];
   let meta: ParsedLine['meta'];

@@ -4,3 +4,5 @@
 {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"export function login() {}"}]},"uuid":"u2","timestamp":"2026-08-26T13:28:53.000Z","sessionId":"s-1"}
 {"type":"queue-operation","operation":"enqueue","timestamp":"2026-08-26T13:28:42.937Z","sessionId":"s-1","content":"hello"}
 not json at all
+null
+{"type":"user","message":{"role":"user","content":"Fix the login bug"},"uuid":"u3","timestamp":"2026-08-26T13:29:00.000Z","entrypoint":"cli","cwd":"/Users/x/proj","sessionId":"s-1","version":"2.1.246"}

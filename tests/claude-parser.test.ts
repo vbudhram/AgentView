@@ -33,4 +33,14 @@ describe('parseClaudeLine', () => {
   it('returns no events for malformed lines', () => {
     expect(parseClaudeLine(lines[5]).events).toEqual([]);
   });
+
+  it('returns no events and does not throw for a non-object JSON value', () => {
+    expect(() => parseClaudeLine(lines[6])).not.toThrow();
+    expect(parseClaudeLine(lines[6]).events).toEqual([]);
+  });
+
+  it('sets source to terminal for a non-desktop entrypoint', () => {
+    const { meta } = parseClaudeLine(lines[7]);
+    expect(meta?.source).toBe('terminal');
+  });
 });
