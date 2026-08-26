@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import type { SessionStore } from './store';
 
 const run = promisify(execFile);
-const AGENT_RE = /(^|\/)(claude|codex)( |$)/;
+const AGENT_RE = /(^|\/)(claude|codex)$/;
 
 export function parsePsForAgents(psOutput: string): number[] {
   const pids: number[] = [];
@@ -11,8 +11,7 @@ export function parsePsForAgents(psOutput: string): number[] {
     const m = line.match(/^\s*(\d+)\s+(.*)$/);
     if (!m) continue;
     const cmd = m[2];
-    const bin = cmd.split(' ')[0];
-    if (AGENT_RE.test(bin + ' ')) pids.push(Number(m[1]));
+    if (AGENT_RE.test(cmd)) pids.push(Number(m[1]));
   }
   return pids;
 }
@@ -31,7 +30,7 @@ export function startProcPoller(store: SessionStore, intervalMs = 5000): { stop(
   let stopped = false;
   const tick = async () => {
     try {
-      const { stdout } = await run('ps', ['-axo', 'pid=,command=']);
+      const { stdout } = await run('ps', ['-axo', 'pid=,comm=']);
       const cwds = new Set<string>();
       for (const pid of parsePsForAgents(stdout)) {
         const cwd = await cwdOf(pid);
