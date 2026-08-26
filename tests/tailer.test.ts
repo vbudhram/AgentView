@@ -25,4 +25,20 @@ describe('Tailer', () => {
     appendFileSync(f, 'ial\n');
     expect(t.readNew(f)).toEqual(['partial']);
   });
+
+  it('returns an empty array for a nonexistent path without throwing', () => {
+    const t = new Tailer();
+    expect(() => t.readNew('/no/such/path.jsonl')).not.toThrow();
+    expect(t.readNew('/no/such/path.jsonl')).toEqual([]);
+  });
+
+  it('resets and re-reads from the start when the file shrinks', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tailer-'));
+    const f = join(dir, 'c.jsonl');
+    writeFileSync(f, 'one\ntwo\n');
+    const t = new Tailer();
+    expect(t.readNew(f)).toEqual(['one', 'two']);
+    writeFileSync(f, 'x\n');
+    expect(t.readNew(f)).toEqual(['x']);
+  });
 });
