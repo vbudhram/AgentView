@@ -8,7 +8,7 @@ describe('parseClaudeLine', () => {
   it('parses a plain user message with meta', () => {
     const { events, meta } = parseClaudeLine(lines[0]);
     expect(events).toEqual([{ kind: 'user_message', ts: '2026-08-26T13:28:43.300Z', text: 'Fix the login bug' }]);
-    expect(meta).toEqual({ sessionId: 's-1', cwd: '/Users/x/proj', source: 'desktop' });
+    expect(meta).toEqual({ sessionId: 's-1', cwd: '/Users/x/proj', source: 'desktop', gitBranch: null });
   });
 
   it('parses thinking + text blocks', () => {
@@ -42,5 +42,10 @@ describe('parseClaudeLine', () => {
   it('sets source to terminal for a non-desktop entrypoint', () => {
     const { meta } = parseClaudeLine(lines[7]);
     expect(meta?.source).toBe('terminal');
+  });
+
+  it('parses gitBranch into meta, null when absent', () => {
+    expect(parseClaudeLine(lines[8]).meta?.gitBranch).toBe('FXA-13867');
+    expect(parseClaudeLine(lines[0]).meta?.gitBranch).toBeNull();
   });
 });

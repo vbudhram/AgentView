@@ -13,6 +13,7 @@ export interface SessionMeta {
   sessionId: string;
   cwd: string;
   source: SourceKind;
+  gitBranch: string | null;
 }
 
 export interface ParsedLine {

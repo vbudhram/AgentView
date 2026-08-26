@@ -28,7 +28,8 @@ export function parseClaudeLine(line: string): ParsedLine {
 
   if (d.sessionId && d.cwd) {
     const source: SourceKind = d.entrypoint === 'claude-desktop' ? 'desktop' : 'terminal';
-    meta = { sessionId: d.sessionId, cwd: d.cwd, source };
+    const gitBranch = typeof d.gitBranch === 'string' && d.gitBranch ? d.gitBranch : null;
+    meta = { sessionId: d.sessionId, cwd: d.cwd, source, gitBranch };
   }
 
   const content = d.message?.content;
