@@ -61,7 +61,7 @@ function Row({ s, selected, onSelect, now }: {
         </b>
         <AgentBadge agent={s.agent} />
         <span style={{ fontSize: 10, color: 'var(--text-faint)', flexShrink: 0 }}>
-          {s.source === 'desktop' ? 'app' : 'term'}
+          {s.source === 'desktop' ? 'app' : s.source === 'codex' ? 'cli' : 'term'}
         </span>
         {s.steerable && (
           <span title="steerable" style={{ fontSize: 10, color: 'var(--cyan)', flexShrink: 0 }}>⌁</span>
