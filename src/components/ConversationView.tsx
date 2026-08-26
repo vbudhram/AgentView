@@ -183,6 +183,7 @@ export function ConversationView({ events }: { events: AgentEvent[] }) {
         {windowed.map((e, i) => (
           <motion.div
             key={start + i}
+            title={new Date(e.ts).toLocaleString()}
             initial={start + i < initial.current ? false : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}

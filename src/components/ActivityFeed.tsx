@@ -6,6 +6,17 @@ import { describeToolCall, plainText, stripAnsi } from '@/lib/describe';
 
 const CLIP = 140;
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Local wall-clock stamp; events from another day carry their date so an
+// old session's feed cannot pass for today's.
+function stamp(iso: string, todayKey: string): string {
+  const d = new Date(iso);
+  const time = [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map((n) => String(n).padStart(2, '0')).join(':');
+  return d.toDateString() === todayKey ? time : `${MONTHS[d.getMonth()]} ${d.getDate()} ${time}`;
+}
+
 function row(e: AgentEvent): { glyph: string; color: string; text: string; raw?: string } {
   switch (e.kind) {
     case 'user_message':
@@ -34,6 +45,7 @@ export function ActivityFeed({ events }: { events: AgentEvent[] }) {
   const [shown, setShown] = useState(WINDOW);
   const start = Math.max(0, events.length - shown);
   const windowed = events.slice(start);
+  const todayKey = new Date().toDateString();
   // rows already present at mount render statically; only later rows animate in
   const initial = useRef(events.length);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -93,7 +105,7 @@ export function ActivityFeed({ events }: { events: AgentEvent[] }) {
               whiteSpace: 'nowrap', overflow: 'hidden',
             }}
           >
-            <span style={{ color: 'var(--text-faint)', flexShrink: 0 }}>{e.ts.slice(11, 19)}</span>
+            <span style={{ color: 'var(--text-faint)', flexShrink: 0 }}>{stamp(e.ts, todayKey)}</span>
             <span style={{ color: r.color, flexShrink: 0, width: 12, textAlign: 'center' }}>{r.glyph}</span>
             <span
               title={r.raw}

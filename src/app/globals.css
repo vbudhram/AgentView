@@ -149,7 +149,7 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .dot-working, .dot-needs_input, .dot-blocked,
   .row-needs_input,
-  .typing i,
+  .typing i, .skeleton-bar,
   .av-tip-working, .av-alarm { animation: none; }
 }
 
@@ -233,6 +233,16 @@ html, body {
   transition: color 0.15s ease, border-color 0.15s ease;
 }
 .copy-cd-btn:hover { border-color: var(--green-dim); color: var(--text); }
+
+/* transcript loading skeleton: dim phosphor bars, gentle shimmer */
+@keyframes skeleton-shimmer { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.8; } }
+.skeleton-bar {
+  height: 11px;
+  border-radius: 3px;
+  margin: 12px 0;
+  background: var(--border);
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
 
 /* collapsible tool blocks in the conversation */
 .tool-toggle {

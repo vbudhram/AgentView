@@ -148,7 +148,7 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
             <span title="steerable" style={{ fontSize: 10, color: 'var(--cyan)', flexShrink: 0 }}>⌁</span>
           )}
           <span style={{ color: 'var(--text-faint)', fontSize: 10, marginLeft: 'auto', flexShrink: 0 }}>
-            {s.source === 'desktop' ? 'app' : s.source === 'codex' ? 'cli' : 'term'}
+            {s.source === 'desktop' ? 'desktop' : s.source === 'codex' ? 'cli' : 'terminal'}
           </span>
         </div>
       </div>
@@ -263,7 +263,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
           <option value="all">All</option>
           <option value="terminal">Terminal</option>
           <option value="desktop">Desktop</option>
-          <option value="codex">Codex</option>
+          <option value="codex">CLI</option>
         </select>
       </div>
       <GroupHeader label="Live" count={live.length} />

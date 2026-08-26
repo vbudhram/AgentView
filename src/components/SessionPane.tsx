@@ -39,6 +39,17 @@ function respondHint(session: SessionSummary | undefined): string {
   return 'respond in the terminal running this session';
 }
 
+// Themed skeleton shown while the first transcript snapshot loads.
+function LoadingSkeleton() {
+  return (
+    <div style={{ padding: '18px 24px', maxWidth: 780, margin: '0 auto' }} aria-label="loading">
+      {[72, 46, 88, 34, 61, 52].map((w, i) => (
+        <div key={i} className="skeleton-bar" style={{ width: `${w}%`, animationDelay: `${i * 0.12}s` }} />
+      ))}
+    </div>
+  );
+}
+
 // One-click bridge to the right terminal: copies `cd <cwd>` for pasting.
 function CopyCdButton({ cwd }: { cwd: string }) {
   const [copied, setCopied] = useState(false);
@@ -241,7 +252,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
         {tab === 'terminal' ? (
           <TerminalView sessionKey={sessionKey} />
         ) : snapshot === null ? (
-          <div style={{ padding: 24, fontSize: 11.5, color: 'var(--text-faint)' }}>loading…</div>
+          <LoadingSkeleton />
         ) : tab === 'conversation' ? (
           <ConversationView events={events} />
         ) : (

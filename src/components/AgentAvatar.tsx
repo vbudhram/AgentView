@@ -52,12 +52,16 @@ export function AgentAvatar({ status, hue, size = 28 }: {
           <circle cx="12" cy="16.2" r="2.9" fill={accent} />
           <circle cx="19.4" cy="16.6" r="2.4" fill={accent} />
           <path d="M12.8 22.4 Q16 24.4 19.2 22.4" fill="none" stroke="var(--text-dim)" strokeWidth="1.7" strokeLinecap="round" />
-          <text
-            className="av-glint" x="21.6" y="13.6" fontSize="11.5" fontWeight="800"
-            fill="var(--amber)" stroke="var(--bg)" strokeWidth="0.5" fontFamily="var(--font-mono)"
-          >
-            ?
-          </text>
+          {/* designed "?" badge: filled disc riding the head's top-right corner */}
+          <g className="av-glint">
+            <circle cx="25.4" cy="8.6" r="5.2" fill="var(--amber)" stroke="var(--bg)" strokeWidth="1.4" />
+            <text
+              x="25.4" y="11.4" fontSize="8.4" fontWeight="800" textAnchor="middle"
+              fill="#1c1403" fontFamily="var(--font-mono)"
+            >
+              ?
+            </text>
+          </g>
         </g>
       )}
 
