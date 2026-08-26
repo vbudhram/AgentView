@@ -48,3 +48,8 @@ export function accentColor(hue: number): string {
 export function accentDim(hue: number, alpha = 0.35): string {
   return `hsla(${hue}, 55%, 55%, ${alpha})`;
 }
+
+// Desaturated accent for demoted flavor text; keeps ~4.5:1 on the dark theme.
+export function accentSoft(hue: number): string {
+  return `hsl(${hue} 30% 64%)`;
+}
