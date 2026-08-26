@@ -5,14 +5,13 @@ import { dirname } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { SessionStore } from './store';
 import type { AgentKind } from './types';
-import { parseSpinner } from './spinner';
+import { SpinnerScreen } from './spinner';
 
 export const SCROLLBACK_MAX = 200 * 1024;
 const LINE_BUF_MAX = 2 * 1024 * 1024;
 // The CLI redraws its spinner at least once a second; a text that stops
 // changing for this long is a leftover, not a live spinner.
 export const SPINNER_STALE_MS = 5000;
-const SPINNER_TAIL_MAX = 2048;
 
 export interface Bridge {
   id: string; agent: AgentKind; cwd: string;
@@ -24,7 +23,7 @@ export interface Bridge {
 class BridgeImpl extends EventEmitter implements Bridge {
   private chunks: Buffer[] = [];
   private size = 0;
-  private tail: Buffer = Buffer.alloc(0);
+  private screen = new SpinnerScreen();
   spinner: string | null = null;
   private spinnerAt = 0;
   constructor(public id: string, public agent: AgentKind, public cwd: string, private socket: Socket) { super(); }
@@ -43,10 +42,8 @@ class BridgeImpl extends EventEmitter implements Bridge {
         this.size -= excess;
       }
     }
-    // A short tail survives chunks that split the spinner line mid-frame.
-    this.tail = Buffer.concat([this.tail, data]);
-    if (this.tail.length > SPINNER_TAIL_MAX) this.tail = this.tail.subarray(this.tail.length - SPINNER_TAIL_MAX);
-    this.setSpinner(parseSpinner(this.tail.toString('utf8')));
+    this.screen.write(data);
+    this.setSpinner(this.screen.spinner());
     this.emit('data', data);
   }
 
@@ -61,7 +58,7 @@ class BridgeImpl extends EventEmitter implements Bridge {
 
   expireSpinner(staleMs: number): void {
     if (this.spinner === null || Date.now() - this.spinnerAt <= staleMs) return;
-    this.tail = Buffer.alloc(0); // the leftover line must not re-match later
+    this.screen.reset(); // the leftover line must not re-match later
     this.setSpinner(null);
   }
   write(data: Buffer): void {
