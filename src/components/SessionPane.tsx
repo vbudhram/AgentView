@@ -39,6 +39,25 @@ function respondHint(session: SessionSummary | undefined): string {
   return 'respond in the terminal running this session';
 }
 
+// One-click bridge to the right terminal: copies `cd <cwd>` for pasting.
+function CopyCdButton({ cwd }: { cwd: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="copy-cd-btn"
+      title={`copy "cd ${cwd}"`}
+      onClick={() => {
+        navigator.clipboard?.writeText(`cd ${cwd}`).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1600);
+        }).catch(() => {});
+      }}
+    >
+      {copied ? '✓ copied' : '⧉ copy path'}
+    </button>
+  );
+}
+
 
 const TABS = ['conversation', 'activity', 'terminal'] as const;
 type Tab = (typeof TABS)[number];
@@ -204,6 +223,9 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
           <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
             · {respondHint(session)}
           </span>
+          {!session.steerable && session.source !== 'desktop' && session.cwd && (
+            <CopyCdButton cwd={session.cwd} />
+          )}
         </div>
       )}
       {session?.status === 'blocked' && (
