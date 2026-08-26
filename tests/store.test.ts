@@ -196,6 +196,16 @@ describe('SessionStore', () => {
     expect(got).toEqual(['claude:f1', 'claude:f1']);
   });
 
+  it('keeps the first cwd as the session identity when later lines cd elsewhere', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', at('2026-08-26T10:00:00Z', 'start'));
+    s.apply('claude', 'f1', {
+      events: [{ kind: 'user_message', ts: '2026-08-26T10:01:00Z', text: 'later' }],
+      meta: { sessionId: 's1', cwd: '/elsewhere', source: 'terminal' },
+    });
+    expect(s.summaries(new Date('2026-08-26T10:01:10Z'))[0].cwd).toBe('/p');
+  });
+
   it('emits events and finds sessions by agent+cwd', () => {
     const s = new SessionStore();
     const got: string[] = [];

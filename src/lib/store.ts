@@ -57,7 +57,10 @@ export class SessionStore extends EventEmitter {
     }
     if (parsed.meta) {
       rec.sessionId = parsed.meta.sessionId ?? rec.sessionId;
-      rec.cwd = parsed.meta.cwd ?? rec.cwd;
+      // First cwd wins: it is the launch directory and the session's identity.
+      // Later lines carry the agent's `cd` excursions, which must not re-home
+      // the session (and would break process/bridge matching by launch dir).
+      rec.cwd = rec.cwd ?? parsed.meta.cwd ?? null;
       rec.source = parsed.meta.source ?? rec.source;
       rec.gitBranch = parsed.meta.gitBranch ?? rec.gitBranch;
     }
