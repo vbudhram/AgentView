@@ -7,10 +7,26 @@ const app = next({ dev });
 const handle = app.getRequestHandler();
 
 await app.prepare();
-const server = createServer((req, res) => handle(req, res));
+
+// Only local hosts are valid; a foreign Host header means DNS rebinding.
+const ALLOWED_HOSTS = new Set(['localhost:4400', '127.0.0.1:4400', 'localhost', '127.0.0.1']);
+const ALLOWED_ORIGINS = new Set(['http://localhost:4400', 'http://127.0.0.1:4400']);
+const hostAllowed = (req) => ALLOWED_HOSTS.has(req.headers.host ?? '');
+
+const server = createServer((req, res) => {
+  if (!hostAllowed(req)) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Bad Request');
+    return;
+  }
+  handle(req, res);
+});
 
 const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
+  if (!hostAllowed(req)) { socket.destroy(); return; }
+  const origin = req.headers.origin;
+  if (origin !== undefined && !ALLOWED_ORIGINS.has(origin)) { socket.destroy(); return; }
   let url;
   try { url = new URL(req.url, 'http://localhost'); } catch { socket.destroy(); return; }
   // Other upgrades (e.g. Next's /_next/hmr socket in dev) belong to Next's
