@@ -2,10 +2,11 @@
 import { useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import type { AgentEvent } from '@/lib/ui-types';
+import { describeToolCall } from '@/lib/describe';
 
 const CLIP = 140;
 
-function row(e: AgentEvent): { glyph: string; color: string; text: string } {
+function row(e: AgentEvent): { glyph: string; color: string; text: string; raw?: string } {
   switch (e.kind) {
     case 'user_message':
       return { glyph: '❯', color: 'var(--green)', text: e.text.slice(0, CLIP) };
@@ -14,7 +15,8 @@ function row(e: AgentEvent): { glyph: string; color: string; text: string } {
     case 'thinking':
       return { glyph: '∴', color: 'var(--text-faint)', text: e.text.slice(0, CLIP) };
     case 'tool_call':
-      return { glyph: '⚙', color: 'var(--cyan)', text: `${e.name} ${e.input.slice(0, CLIP)}` };
+      // humanized summary; the raw payload survives on hover
+      return { glyph: '⚙', color: 'var(--cyan)', text: describeToolCall(e.name, e.input), raw: `${e.name} ${e.input.slice(0, 800)}` };
     case 'tool_result':
       return e.isError
         ? { glyph: '✗', color: 'var(--red)', text: e.output.slice(0, CLIP) }
@@ -66,7 +68,10 @@ export function ActivityFeed({ events }: { events: AgentEvent[] }) {
           >
             <span style={{ color: 'var(--text-faint)', flexShrink: 0 }}>{e.ts.slice(11, 19)}</span>
             <span style={{ color: r.color, flexShrink: 0, width: 12, textAlign: 'center' }}>{r.glyph}</span>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-dim)' }}>
+            <span
+              title={r.raw}
+              style={{ overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-dim)' }}
+            >
               {r.text.replace(/\s+/g, ' ')}
             </span>
           </motion.div>

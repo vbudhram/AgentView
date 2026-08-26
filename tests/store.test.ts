@@ -70,7 +70,21 @@ describe('SessionStore', () => {
     s.apply('claude', 'f1', { events: [
       { kind: 'tool_call', ts: '2026-08-26T10:00:06Z', name: 'Grep', input: '{"pattern":"foo"}' },
     ] });
-    expect(s.summaries(new Date('2026-08-26T10:00:10Z'))[0].now).toBe('Grep: {"pattern":"foo"}');
+    // structured input is humanized, never raw JSON
+    expect(s.summaries(new Date('2026-08-26T10:00:10Z'))[0].now).toBe('Grep: foo');
+  });
+
+  it('humanizes agent-style tool calls and mcp tool names in the now-line', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', { events: [
+      { kind: 'tool_call', ts: '2026-08-26T10:00:00Z', name: 'Agent', input: JSON.stringify({ description: 'Critic round 2', prompt: 'long...' }) },
+    ] });
+    expect(s.summaries(new Date('2026-08-26T10:00:10Z'))[0].now).toBe('Agent: Critic round 2');
+    s.apply('claude', 'f2', { events: [
+      { kind: 'tool_call', ts: '2026-08-26T10:00:00Z', name: 'mcp__plugin_x_y__get_observations', input: '{"unknown":1}' },
+    ] });
+    const sums = s.summaries(new Date('2026-08-26T10:00:10Z'));
+    expect(sums.find((x) => x.key === 'claude:f2')?.now).toBe('get_observations');
   });
 
   it('computes a needs_input now-line from the last assistant message', () => {
@@ -83,6 +97,24 @@ describe('SessionStore', () => {
     const [sum] = s.summaries(new Date('2026-08-26T10:05:00Z'));
     expect(sum.status).toBe('needs_input');
     expect(sum.now).toBe('asked: Should I also update the tests?');
+  });
+
+  it('truncates a long ask from the head at a word boundary with a trailing ellipsis', () => {
+    const s = new SessionStore();
+    const long = 'Want me to fix it? The minimal change is to key every row by session id and let the group assignment be a render property instead of a separate mount point entirely.';
+    s.apply('claude', 'f1', {
+      events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: long }],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
+    });
+    s.setAliveCwds(new Set(['/p']));
+    const now = s.summaries(new Date('2026-08-26T10:05:00Z'))[0].now!;
+    expect(now.startsWith('asked: Want me to fix it?')).toBe(true);
+    expect(now.endsWith('…')).toBe(true);
+    expect(now.length).toBeLessThanOrEqual('asked: '.length + 121);
+    // never cut mid-word: the char before the ellipsis ends a whole word from the source
+    const body = now.slice('asked: '.length, -1);
+    expect(long.startsWith(body)).toBe(true);
+    expect(long[body.length]).toBe(' ');
   });
 
   it('computes a blocked now-line from the pending tool call', () => {
