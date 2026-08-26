@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { MotionConfig } from 'motion/react';
 import type { AgentEvent, SessionSummary, SourceKind } from '@/lib/ui-types';
 import { SessionNav } from './SessionNav';
+import { SessionPane } from './SessionPane';
 
 const MAX_LIVE_EVENTS = 500; // per-key cap so a long-running dashboard stays bounded
 
@@ -77,7 +78,12 @@ export function Dashboard() {
       />
       <main style={{ flex: 1, height: '100vh', overflow: 'hidden' }}>
         {selectedKey ? (
-          <SessionPanePlaceholder key={selectedKey} sessionKey={selectedKey} liveEvents={liveEvents[selectedKey] ?? []} />
+          <SessionPane
+            key={selectedKey}
+            sessionKey={selectedKey}
+            session={sessions.find((s) => s.key === selectedKey)}
+            liveEvents={liveEvents[selectedKey] ?? []}
+          />
         ) : (
           <div style={{
             height: '100%', display: 'flex', flexDirection: 'column',
@@ -97,14 +103,5 @@ export function Dashboard() {
       </main>
     </div>
     </MotionConfig>
-  );
-}
-
-// Replaced by SessionPane in Task 11.
-function SessionPanePlaceholder({ sessionKey, liveEvents }: { sessionKey: string; liveEvents: AgentEvent[] }) {
-  return (
-    <div style={{ padding: 24, fontSize: 12, color: 'var(--text-dim)' }}>
-      <span style={{ color: 'var(--text)' }}>{sessionKey}</span> — {liveEvents.length} live events
-    </div>
   );
 }
