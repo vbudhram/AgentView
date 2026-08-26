@@ -1,9 +1,28 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { AgentEvent } from '@/lib/ui-types';
 import { prettyToolInput, shortToolName } from '@/lib/describe';
+
+// GFM (tables, autolinked URLs, strikethrough) plus theme-fitting renderers:
+// links open in a new tab; wide tables scroll inside their own container.
+const remarkPlugins = [remarkGfm];
+const mdComponents: Components = {
+  a: ({ node: _n, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+  table: ({ node: _n, ...props }) => (
+    <div className="table-wrap"><table {...props} /></div>
+  ),
+};
+
+function Markdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={remarkPlugins} components={mdComponents}>
+      {text}
+    </ReactMarkdown>
+  );
+}
 
 const MAX_TOOL_BODY = 4000;
 const MAX_THINKING = 300;
@@ -50,13 +69,13 @@ function Item({ e }: { e: AgentEvent }) {
       return (
         <div className="msg-user">
           <div className="msg-label">YOU</div>
-          <div className="md"><ReactMarkdown>{e.text}</ReactMarkdown></div>
+          <div className="md"><Markdown text={e.text} /></div>
         </div>
       );
     case 'assistant_message':
       return (
         <div className="md" style={{ padding: '5px 0' }}>
-          <ReactMarkdown>{e.text}</ReactMarkdown>
+          <Markdown text={e.text} />
         </div>
       );
     case 'thinking':

@@ -305,6 +305,22 @@ html, body {
   color: var(--text-dim);
 }
 .md hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
-.md table { border-collapse: collapse; margin: 0 0 8px; font-size: 11.5px; }
-.md th, .md td { border: 1px solid var(--border-strong); padding: 3px 8px; text-align: left; }
-.md th { color: var(--text); background: var(--bg-raised); }
+/* GFM tables: bordered and compact; wide ones scroll inside their wrapper */
+.md .table-wrap { overflow-x: auto; margin: 0 0 8px; }
+.md table { border-collapse: collapse; font-size: 11.5px; }
+.md th, .md td {
+  border: 1px solid var(--border-strong);
+  padding: 3px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.md th {
+  color: var(--text);
+  background: var(--bg-raised);
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.md tr:nth-child(even) td { background: rgba(217, 226, 218, 0.025); }
+.md a { overflow-wrap: anywhere; }
+.md a:hover { text-decoration-color: var(--cyan); }
