@@ -53,15 +53,16 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
   const lastRefetch = useRef(0);
   useEffect(() => {
     if (!snapshot || !session || session.eventCount <= events.length) return;
+    let cancelled = false;
     const t = setTimeout(() => {
       if (Date.now() - lastRefetch.current < 2000) return;
       lastRefetch.current = Date.now();
       fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/events`)
         .then((r) => r.json())
-        .then((d) => { if (Array.isArray(d.events)) setSnapshot(d.events); })
+        .then((d) => { if (!cancelled && Array.isArray(d.events)) setSnapshot(d.events); })
         .catch(() => {});
     }, 400);
-    return () => clearTimeout(t);
+    return () => { cancelled = true; clearTimeout(t); };
   }, [session, snapshot, events.length, sessionKey]);
 
   return (
