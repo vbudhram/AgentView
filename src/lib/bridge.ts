@@ -79,6 +79,7 @@ export class BridgeServer extends EventEmitter {
         buf = buf.slice(nl + 1);
         let msg: any;
         try { msg = JSON.parse(line); } catch { continue; }
+        if (!msg || typeof msg !== 'object') continue;
         if (msg.t === 'hello' && !bridge && isValidHello(msg)) {
           bridge = new BridgeImpl(`${msg.agent}:${msg.pid}`, msg.agent, msg.cwd, socket);
           this.bridges.set(bridge.id, bridge);

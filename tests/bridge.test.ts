@@ -119,6 +119,28 @@ describe('BridgeServer', () => {
     await server.close();
   });
 
+  it('ignores non-object json frames (null, string) and keeps relaying', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 8 }) + '\n');
+    client.write('null\n');
+    client.write('"str"\n');
+    client.write(JSON.stringify({ t: 'out', d: Buffer.from('still-ok').toString('base64') }) + '\n');
+    await wait(200);
+
+    const bridge = server.get('claude:8');
+    expect(bridge).toBeDefined();
+    expect(bridge!.scrollback().toString()).toBe('still-ok');
+
+    client.end();
+    await server.close();
+  });
+
   it('destroys a socket that floods the line buffer without a newline', async () => {
     const store = makeStore();
     const sock = makeSock();
