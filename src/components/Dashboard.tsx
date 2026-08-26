@@ -7,6 +7,17 @@ import { SessionPane } from './SessionPane';
 
 const MAX_LIVE_EVENTS = 500; // per-key cap so a long-running dashboard stays bounded
 
+// Tiny data-URI favicon: a dot whose color mirrors the fleet status.
+function faviconFor(color: string, alert: boolean): string {
+  const mark = alert
+    ? `<rect x='14' y='7' width='4' height='12' rx='2' fill='#0a0d0b'/><rect x='14' y='21' width='4' height='4' rx='2' fill='#0a0d0b'/>`
+    : '';
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>` +
+    `<rect width='32' height='32' rx='7' fill='#0a0d0b'/>` +
+    `<circle cx='16' cy='16' r='10' fill='${color}'/>${mark}</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 export function Dashboard() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -46,15 +57,39 @@ export function Dashboard() {
     return [...f.filter((s) => s.status !== 'ended'), ...f.filter((s) => s.status === 'ended')];
   }, [sessions, filter]);
 
+  // Title + favicon radar: the needs-you count reaches the user before they
+  // ever focus this window.
+  useEffect(() => {
+    const needs = sessions.filter((s) => s.status === 'needs_input' || s.status === 'blocked').length;
+    const working = sessions.filter((s) => s.status === 'working').length;
+    document.title =
+      needs > 0 ? `⚠ ${needs} need you — AgentView` :
+      working > 0 ? `● ${working} working — AgentView` : 'AgentView';
+    let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.type = 'image/svg+xml';
+    link.href = needs > 0
+      ? faviconFor('#fbbf24', true)
+      : faviconFor(working > 0 ? '#4ade80' : '#556057', false);
+  }, [sessions]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!['ArrowUp', 'ArrowDown', 'j', 'k'].includes(e.key)) return;
+      // e.code covers layouts/environments where arrows report a legacy e.key
+      const down = e.key === 'ArrowDown' || e.key === 'Down' || e.code === 'ArrowDown' || e.key === 'j';
+      const up = e.key === 'ArrowUp' || e.key === 'Up' || e.code === 'ArrowUp' || e.key === 'k';
+      if (!down && !up) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
       if (visible.length === 0) return;
       const idx = visible.findIndex((s) => s.key === selectedKey);
-      const delta = e.key === 'ArrowDown' || e.key === 'j' ? 1 : -1;
+      const delta = down ? 1 : -1;
       // with no current selection, down starts at the top and up at the bottom
       const nextIdx = idx === -1
         ? (delta > 0 ? 0 : visible.length - 1)
@@ -68,7 +103,7 @@ export function Dashboard() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <div style={{ display: 'flex', background: 'var(--bg)' }}>
+    <div className="app-shell">
       <SessionNav
         sessions={sessions}
         selectedKey={selectedKey}
@@ -76,7 +111,7 @@ export function Dashboard() {
         filter={filter}
         onFilter={setFilter}
       />
-      <main style={{ flex: 1, height: '100vh', overflow: 'hidden' }}>
+      <main className="app-main">
         {selectedKey ? (
           <SessionPane
             key={selectedKey}
