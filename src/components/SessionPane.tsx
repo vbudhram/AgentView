@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import type { AgentEvent, SessionSummary } from '@/lib/ui-types';
 import { ConversationView } from './ConversationView';
@@ -33,8 +33,11 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
     if (liveEvents.length === 0) return snapshot;
     if (snapshot.length === 0) return liveEvents;
     const tail = snapshot[snapshot.length - 1];
-    const tailKey = JSON.stringify(tail);
+    let tailKey: string | null = null;
     for (let i = liveEvents.length - 1; i >= 0; i--) {
+      // cheap ts precheck; stringify only candidates with a matching timestamp
+      if (liveEvents[i].ts !== tail.ts) continue;
+      tailKey ??= JSON.stringify(tail);
       if (JSON.stringify(liveEvents[i]) === tailKey) {
         return [...snapshot, ...liveEvents.slice(i + 1)];
       }
@@ -42,6 +45,24 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
     // the snapshot tail predates the live stream: append only strictly newer events
     return [...snapshot, ...liveEvents.filter((e) => e.ts > tail.ts)];
   }, [snapshot, liveEvents]);
+
+  // If the store holds more events than the merge produced (e.g. the live buffer
+  // trimmed past its cap), the snapshot is stale: refetch it. The short delay
+  // skips transient leads where a summary frame lands before its events frame,
+  // and the throttle keeps a burst from hammering the API.
+  const lastRefetch = useRef(0);
+  useEffect(() => {
+    if (!snapshot || !session || session.eventCount <= events.length) return;
+    const t = setTimeout(() => {
+      if (Date.now() - lastRefetch.current < 2000) return;
+      lastRefetch.current = Date.now();
+      fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/events`)
+        .then((r) => r.json())
+        .then((d) => { if (Array.isArray(d.events)) setSnapshot(d.events); })
+        .catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [session, snapshot, events.length, sessionKey]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
