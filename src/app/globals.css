@@ -234,6 +234,97 @@ html, body {
 }
 .copy-cd-btn:hover { border-color: var(--green-dim); color: var(--text); }
 
+/* ---- live terminal preview -------------------------------------- */
+
+/* outer shell: animates the whole card away when the bridge drops (grid-rows
+   0fr trick keeps the height animation cheap and content-driven) */
+.term-preview-shell {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.25s ease, opacity 0.25s ease;
+  flex-shrink: 0;
+}
+.term-preview-shell.gone { grid-template-rows: 0fr; opacity: 0; pointer-events: none; }
+.term-preview-shell-inner { overflow: hidden; min-height: 0; }
+
+.term-preview {
+  margin: 10px 18px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #0a0d0b;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.term-preview:hover, .term-preview:focus-visible {
+  border-color: var(--green-dim);
+  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.08), 0 0 14px rgba(74, 222, 128, 0.06);
+}
+.term-preview:focus-visible { outline: 1px solid var(--green); outline-offset: -1px; }
+
+.term-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 10px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
+.term-preview-label {
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.term-preview-hint {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--green);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+}
+.term-preview:hover .term-preview-hint,
+.term-preview:focus-visible .term-preview-hint { opacity: 1; }
+
+.term-preview-chevron {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 3px;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1;
+  transition: color 0.15s ease;
+}
+.term-preview-chevron:hover { color: var(--text); }
+
+/* user collapse: same grid trick, header bar stays */
+.term-preview-body-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease;
+}
+.term-preview-body-wrap.closed { grid-template-rows: 0fr; }
+.term-preview-body-inner { overflow: hidden; min-height: 0; }
+
+/* the monitor surface: read-only, no pointer interaction with xterm */
+.term-preview-screen {
+  height: 138px;
+  padding: 6px 2px 6px 10px;
+  pointer-events: none;
+  user-select: none;
+}
+/* the compact monitor hides xterm's own scrollbar; it always tails */
+.term-preview-screen .xterm-viewport { scrollbar-width: none; }
+.term-preview-screen .xterm-viewport::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .term-preview-shell, .term-preview-body-wrap, .term-preview-hint { transition: none; }
+}
+
 /* transcript loading skeleton: dim phosphor bars, gentle shimmer */
 @keyframes skeleton-shimmer { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.8; } }
 .skeleton-bar {

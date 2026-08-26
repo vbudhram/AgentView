@@ -4,6 +4,7 @@ import type { AgentEvent, SessionSummary } from '@/lib/ui-types';
 import { ConversationView } from './ConversationView';
 import { ActivityFeed } from './ActivityFeed';
 import { TerminalView } from './TerminalView';
+import { TerminalPreview } from './TerminalPreview';
 import { accentSoft, type Persona } from '@/lib/persona';
 import { AgentAvatar } from './AgentAvatar';
 
@@ -89,6 +90,22 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
   useEffect(() => {
     if (tab === 'terminal' && !session?.steerable) setTab('conversation');
   }, [tab, session?.steerable]);
+
+  // Live-terminal preview lifecycle: mount while steerable; when the bridge
+  // drops, keep it mounted briefly so the card can animate away.
+  const steerable = !!session?.steerable;
+  const [previewMounted, setPreviewMounted] = useState(steerable);
+  // A session switch snaps to the new state; only a live drop animates out.
+  const [previewKey, setPreviewKey] = useState(sessionKey);
+  if (previewKey !== sessionKey) {
+    setPreviewKey(sessionKey);
+    setPreviewMounted(steerable);
+  }
+  useEffect(() => {
+    if (steerable) { setPreviewMounted(true); return; }
+    const t = setTimeout(() => setPreviewMounted(false), 300);
+    return () => clearTimeout(t);
+  }, [steerable, sessionKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -252,6 +269,16 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
             {longPending ? '· still running — may need approval' : '· tool still running'}
           </span>
         </div>
+      )}
+
+      {previewMounted && tab !== 'terminal' && (
+        <TerminalPreview
+          key={sessionKey}
+          sessionKey={sessionKey}
+          hue={persona.hue}
+          open={steerable}
+          onOpenTerminal={() => setTab('terminal')}
+        />
       )}
 
       <div style={{ flex: 1, minHeight: 0 }}>
