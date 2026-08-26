@@ -2,11 +2,15 @@
   "name": "agentview",
   "version": "1.0.0",
   "description": "",
+  "bin": {
+    "av": "bin/av.mjs"
+  },
   "scripts": {
     "dev": "node server.mjs",
     "build": "next build",
     "start": "NODE_ENV=production node server.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "postinstall": "node -e \"const fs=require('fs'),p='node_modules/node-pty/prebuilds';try{for(const d of fs.readdirSync(p)){try{fs.chmodSync(p+'/'+d+'/spawn-helper',0o755)}catch{}}}catch{}\""
   },
   "keywords": [],
   "author": "",
@@ -15,6 +19,7 @@
     "chokidar": "^5.0.0",
     "motion": "^13.1.1",
     "next": "^16.3.3",
+    "node-pty": "^1.1.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
