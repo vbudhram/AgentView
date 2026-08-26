@@ -5,6 +5,8 @@ import type { AgentEvent, SessionSummary } from '@/lib/ui-types';
 import { ConversationView } from './ConversationView';
 import { ActivityFeed } from './ActivityFeed';
 import { TerminalView } from './TerminalView';
+import { personaFor, accentColor } from '@/lib/persona';
+import { AgentAvatar } from './AgentAvatar';
 
 const TABS = ['conversation', 'activity', 'terminal'] as const;
 type Tab = (typeof TABS)[number];
@@ -72,8 +74,41 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
     return () => { cancelled = true; clearTimeout(t); };
   }, [session, snapshot, events.length, sessionKey]);
 
+  const persona = personaFor(sessionKey);
+  const accent = accentColor(persona.hue);
+  const project = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : null;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{
+        display: 'flex', gap: 10, alignItems: 'center', padding: '10px 18px 8px',
+        borderBottom: '1px solid var(--border)', flexShrink: 0,
+      }}>
+        <AgentAvatar status={session?.status ?? 'idle'} hue={persona.hue} size={34} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{
+            fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700,
+            letterSpacing: '0.04em', color: accent, whiteSpace: 'nowrap',
+            overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {persona.name}
+          </div>
+          <div style={{
+            fontSize: 10.5, color: 'var(--text-dim)', whiteSpace: 'nowrap',
+            overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {project ?? sessionKey}
+            {session?.gitBranch ? <span style={{ color: 'var(--text-faint)' }}> · {session.gitBranch}</span> : null}
+          </div>
+        </div>
+        <span title={session?.cwd ?? undefined} style={{
+          marginLeft: 'auto', fontSize: 10.5, color: 'var(--text-faint)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', direction: 'rtl',
+          maxWidth: '40%',
+        }}>
+          {session?.cwd ?? ''}
+        </span>
+      </div>
       <div style={{
         display: 'flex', gap: 18, alignItems: 'center', padding: '0 18px',
         borderBottom: '1px solid var(--border)', flexShrink: 0,
@@ -101,29 +136,23 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
             Open in Claude Desktop
           </button>
         )}
-        <span style={{
-          marginLeft: 'auto', fontSize: 10.5, color: 'var(--text-faint)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', direction: 'rtl',
-        }}>
-          {session?.cwd ?? sessionKey}
-        </span>
       </div>
 
       {session?.status === 'working' && (
         <div className="strip" style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--green-deep)' }}>
           <span className="typing" aria-label="working"><i /><i /><i /></span>
-          working{session.lastTool ? ' — ' : ''}
-          {session.lastTool && <span style={{ color: 'var(--green)' }}>{session.lastTool}</span>}
+          working{session.now ? ' — ' : ''}
+          {session.now && <span style={{ color: 'var(--green)' }}>{session.now}</span>}
         </div>
       )}
       {session?.status === 'needs_input' && (
         <div className="strip row-needs_input" style={{ color: 'var(--amber)', fontWeight: 600 }}>
-          ⏸ waiting for your input
+          ⏸ waiting for your input{session.now ? ` — ${session.now}` : ''}
         </div>
       )}
       {session?.status === 'blocked' && (
         <div className="strip row-blocked" style={{ color: 'var(--red)', fontWeight: 600 }}>
-          ⚠ likely waiting on a permission prompt
+          ⚠ likely waiting on a permission prompt{session.now ? ` — ${session.now}` : ''}
         </div>
       )}
 

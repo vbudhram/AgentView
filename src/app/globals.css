@@ -119,11 +119,30 @@ html, body {
 .typing i:nth-child(2) { animation-delay: 0.2s; }
 .typing i:nth-child(3) { animation-delay: 0.4s; }
 
+/* ---- agent avatar expressions ---------------------------------- */
+
+/* working: pupils sweep side to side inside the visor */
+@keyframes av-scan {
+  0%, 100% { transform: translateX(-1.1px); }
+  50%      { transform: translateX(1.1px); }
+}
+.av-pupil { animation: av-scan 1.5s ease-in-out infinite; }
+/* working antenna tip: soft phosphor pulse */
+@keyframes av-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.av-tip-working { animation: av-glow 1.2s ease-in-out infinite; }
+/* blocked: alarmed flicker */
+@keyframes av-alarm-fx { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.av-alarm { animation: av-alarm-fx 0.9s ease-in-out infinite; }
+/* needs_input: the question glint breathes */
+@keyframes av-glint-fx { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+.av-glint { animation: av-glint-fx 2.4s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .dot-working, .dot-needs_input, .dot-blocked,
   .row-needs_input, .row-blocked,
   .word-needs, .word-blocked,
-  .cursor-blink, .typing i { animation: none; }
+  .cursor-blink, .typing i,
+  .av-pupil, .av-tip-working, .av-alarm, .av-glint { animation: none; }
 }
 
 /* ---- nav widgets ----------------------------------------------- */
