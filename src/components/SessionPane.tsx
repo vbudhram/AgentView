@@ -4,8 +4,9 @@ import { motion } from 'motion/react';
 import type { AgentEvent, SessionSummary } from '@/lib/ui-types';
 import { ConversationView } from './ConversationView';
 import { ActivityFeed } from './ActivityFeed';
+import { TerminalView } from './TerminalView';
 
-const TABS = ['conversation', 'activity'] as const;
+const TABS = ['conversation', 'activity', 'terminal'] as const;
 type Tab = (typeof TABS)[number];
 
 export function SessionPane({ sessionKey, session, liveEvents }: {
@@ -15,6 +16,12 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
 }) {
   const [snapshot, setSnapshot] = useState<AgentEvent[] | null>(null);
   const [tab, setTab] = useState<Tab>('conversation');
+  const tabs = session?.steerable ? TABS : TABS.filter((t) => t !== 'terminal');
+
+  // The terminal tab vanishes when the bridge drops; leave it with it.
+  useEffect(() => {
+    if (tab === 'terminal' && !session?.steerable) setTab('conversation');
+  }, [tab, session?.steerable]);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +78,7 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
         display: 'flex', gap: 18, alignItems: 'center', padding: '0 18px',
         borderBottom: '1px solid var(--border)', flexShrink: 0,
       }}>
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
             {t}
             {tab === t && (
@@ -109,7 +116,9 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
       )}
 
       <div style={{ flex: 1, minHeight: 0 }}>
-        {snapshot === null ? (
+        {tab === 'terminal' ? (
+          <TerminalView sessionKey={sessionKey} />
+        ) : snapshot === null ? (
           <div style={{ padding: 24, fontSize: 11.5, color: 'var(--text-faint)' }}>loading…</div>
         ) : tab === 'conversation' ? (
           <ConversationView events={events} />
