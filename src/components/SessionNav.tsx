@@ -116,6 +116,8 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
             fontFamily: 'var(--font-display)', fontSize: nameSize, fontWeight: 700,
             letterSpacing: '0.02em', whiteSpace: 'nowrap', overflow: 'hidden',
             textOverflow: 'ellipsis', color: ended ? 'var(--text-dim)' : 'var(--text)',
+            // the project name is the WHERE: the branch gives way before it does
+            flexShrink: 0, maxWidth: attention ? 'calc(100% - 128px)' : 'calc(100% - 46px)',
           }}>
             {project}
           </b>
