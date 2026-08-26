@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import type { AgentEvent } from '@/lib/ui-types';
 import { describeToolCall, plainText, stripAnsi } from '@/lib/describe';
@@ -26,16 +26,31 @@ function row(e: AgentEvent): { glyph: string; color: string; text: string; raw?:
   }
 }
 
+// Same tail-windowing as the conversation: huge feeds must not freeze the tab.
+const WINDOW = 250;
+const CHUNK = 250;
+
 export function ActivityFeed({ events }: { events: AgentEvent[] }) {
+  const [shown, setShown] = useState(WINDOW);
+  const start = Math.max(0, events.length - shown);
+  const windowed = events.slice(start);
   // rows already present at mount render statically; only later rows animate in
   const initial = useRef(events.length);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  const expandAnchor = useRef<number | null>(null);
 
-  useEffect(() => {
+  // layout effect: the first bottom-anchor lands before paint (no top flash)
+  useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [events.length]);
+    if (!el) return;
+    if (expandAnchor.current != null) {
+      el.scrollTop = el.scrollHeight - expandAnchor.current;
+      expandAnchor.current = null;
+      return;
+    }
+    if (stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [windowed.length, start]);
 
   return (
     <div
@@ -53,12 +68,24 @@ export function ActivityFeed({ events }: { events: AgentEvent[] }) {
           no activity yet
         </div>
       )}
-      {events.map((e, i) => {
+      {start > 0 && (
+        <button
+          className="show-earlier-btn"
+          onClick={() => {
+            const el = scrollRef.current;
+            expandAnchor.current = el ? el.scrollHeight - el.scrollTop : null;
+            setShown((n) => n + CHUNK);
+          }}
+        >
+          ▲ show earlier ({start.toLocaleString()} more)
+        </button>
+      )}
+      {windowed.map((e, i) => {
         const r = row(e);
         return (
           <motion.div
-            key={i}
-            initial={i < initial.current ? false : { opacity: 0, y: 4 }}
+            key={start + i}
+            initial={start + i < initial.current ? false : { opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
             style={{

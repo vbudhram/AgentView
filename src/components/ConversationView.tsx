@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -116,20 +116,40 @@ function Item({ e }: { e: AgentEvent }) {
   }
 }
 
+// Render only the tail of long transcripts: a 70k-event session must not
+// freeze the tab. "Show earlier" reveals older events in chunks.
+const WINDOW = 250;
+const CHUNK = 250;
+
 export function ConversationView({ events }: { events: AgentEvent[] }) {
   const visible = events.filter((e) => e.kind !== 'turn_status');
+  const [shown, setShown] = useState(WINDOW);
+  // The window is anchored to the end, so live events never shift older rows.
+  const start = Math.max(0, visible.length - shown);
+  const windowed = visible.slice(start);
   // items already present at mount render statically; only later items animate in
   const initial = useRef(visible.length);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const firstScroll = useRef(true);
+  // distance from the bottom, captured just before revealing earlier events
+  const expandAnchor = useRef<number | null>(null);
 
-  useEffect(() => {
+  // layout effect: the first bottom-anchor lands before paint (no top flash)
+  useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || !stickRef.current) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: firstScroll.current ? 'auto' : 'smooth' });
+    if (!el) return;
+    if (expandAnchor.current != null) {
+      // keep the reader's place while earlier events mount above
+      el.scrollTop = el.scrollHeight - expandAnchor.current;
+      expandAnchor.current = null;
+      return;
+    }
+    if (!stickRef.current) return;
+    if (firstScroll.current) el.scrollTop = el.scrollHeight;
+    else el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     firstScroll.current = false;
-  }, [visible.length]);
+  }, [windowed.length, start]);
 
   return (
     <div
@@ -148,10 +168,22 @@ export function ConversationView({ events }: { events: AgentEvent[] }) {
             no conversation events yet
           </div>
         )}
-        {visible.map((e, i) => (
+        {start > 0 && (
+          <button
+            className="show-earlier-btn"
+            onClick={() => {
+              const el = scrollRef.current;
+              expandAnchor.current = el ? el.scrollHeight - el.scrollTop : null;
+              setShown((n) => n + CHUNK);
+            }}
+          >
+            ▲ show earlier ({start.toLocaleString()} more)
+          </button>
+        )}
+        {windowed.map((e, i) => (
           <motion.div
-            key={i}
-            initial={i < initial.current ? false : { opacity: 0, y: 10 }}
+            key={start + i}
+            initial={start + i < initial.current ? false : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
           >
