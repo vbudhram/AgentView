@@ -3,8 +3,9 @@ import { join } from 'node:path';
 import { SessionStore } from './store';
 import { startCollectors } from './collectors';
 import { startProcPoller } from './proc';
+import { BridgeServer } from './bridge';
 
-interface Runtime { store: SessionStore }
+interface Runtime { store: SessionStore; bridge: BridgeServer }
 
 export function getRuntime(): Runtime {
   const g = globalThis as any;
@@ -16,7 +17,9 @@ export function getRuntime(): Runtime {
       store,
     });
     startProcPoller(store);
-    g.__agentview = { store };
+    const bridge = new BridgeServer(store, join(homedir(), '.agentview', 'bridge.sock'));
+    bridge.listen();
+    g.__agentview = { store, bridge };
   }
   return g.__agentview;
 }
