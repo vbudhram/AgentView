@@ -98,9 +98,12 @@ export class BridgeServer extends EventEmitter {
     this.spinnerTimer.unref?.();
   }
 
-  private keyFor(bridgeId: string): string | null {
-    for (const [key, id] of this.pairs) if (id === bridgeId) return key;
-    return null;
+  // One bridge can be paired to several keys for its cwd (an ended session
+  // plus the live one). The spinner belongs on the current key only, the
+  // same one pairAll would pick.
+  private keyFor(bridge: BridgeImpl): string | null {
+    const key = this.store.findKeyByAgentCwd(bridge.agent, bridge.cwd);
+    return key && this.pairs.get(key) === bridge.id ? key : null;
   }
 
   private handle(socket: Socket): void {
@@ -122,7 +125,7 @@ export class BridgeServer extends EventEmitter {
           this.bridges.set(bridge.id, bridge);
           const b = bridge;
           b.on('spinner', (text: string | null) => {
-            const key = this.keyFor(b.id);
+            const key = this.keyFor(b);
             if (key) this.store.setSpinner(key, text);
           });
           this.pairAll();
@@ -165,6 +168,10 @@ export class BridgeServer extends EventEmitter {
       this.pairs.set(key, bridge.id);
       this.store.setSteerable(key, true);
       if (bridge.spinner !== null) this.store.setSpinner(key, bridge.spinner);
+      // the spinner moved to the current key; older keys of this bridge lose it
+      for (const [k, id] of this.pairs) {
+        if (id === bridge.id && k !== key) this.store.setSpinner(k, null);
+      }
     }
   }
 
