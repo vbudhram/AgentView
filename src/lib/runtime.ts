@@ -18,7 +18,7 @@ export function getRuntime(): Runtime {
     });
     startProcPoller(store);
     const bridge = new BridgeServer(store, join(homedir(), '.agentview', 'bridge.sock'));
-    bridge.listen();
+    bridge.listen().catch((err) => console.error('[bridge]', err));
     g.__agentview = { store, bridge };
   }
   return g.__agentview;
