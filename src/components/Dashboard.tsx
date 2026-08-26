@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MotionConfig } from 'motion/react';
 import type { AgentEvent, SessionSummary, SourceKind } from '@/lib/ui-types';
+import { personaFor, resolvePersonas } from '@/lib/persona';
 import { SessionNav } from './SessionNav';
 import { SessionPane } from './SessionPane';
 
@@ -57,13 +58,20 @@ export function Dashboard() {
     return [...f.filter((s) => s.status !== 'ended'), ...f.filter((s) => s.status === 'ended')];
   }, [sessions, filter]);
 
+  // Codenames resolved against the current fleet, so collisions get epithets.
+  const personas = useMemo(() => resolvePersonas(sessions.map((s) => s.key)), [sessions]);
+
   // Title + favicon radar: the needs-you count reaches the user before they
-  // ever focus this window.
+  // ever focus this window. Only needs_input is a confirmed "needs you";
+  // a stalled tool call is a maybe and gets its own softer wording.
   useEffect(() => {
-    const needs = sessions.filter((s) => s.status === 'needs_input' || s.status === 'blocked').length;
+    const needs = sessions.filter((s) => s.status === 'needs_input');
+    const stalled = sessions.filter((s) => s.status === 'blocked').length;
     const working = sessions.filter((s) => s.status === 'working').length;
     document.title =
-      needs > 0 ? `⚠ ${needs} need you — AgentView` :
+      needs.length === 1 ? `⚠ ${personas.get(needs[0].key)?.name ?? '1'} needs you — AgentView` :
+      needs.length > 0 ? `⚠ ${needs.length} need you — AgentView` :
+      stalled > 0 ? `⏳ ${stalled} stalled? — AgentView` :
       working > 0 ? `● ${working} working — AgentView` : 'AgentView';
     let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
     if (!link) {
@@ -72,10 +80,10 @@ export function Dashboard() {
       document.head.appendChild(link);
     }
     link.type = 'image/svg+xml';
-    link.href = needs > 0
+    link.href = needs.length > 0
       ? faviconFor('#fbbf24', true)
-      : faviconFor(working > 0 ? '#4ade80' : '#556057', false);
-  }, [sessions]);
+      : faviconFor(working > 0 || stalled > 0 ? '#4ade80' : '#556057', false);
+  }, [sessions, personas]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -106,6 +114,7 @@ export function Dashboard() {
     <div className="app-shell">
       <SessionNav
         sessions={sessions}
+        personas={personas}
         selectedKey={selectedKey}
         onSelect={setSelectedKey}
         filter={filter}
@@ -116,6 +125,7 @@ export function Dashboard() {
           <SessionPane
             key={selectedKey}
             sessionKey={selectedKey}
+            persona={personas.get(selectedKey) ?? personaFor(selectedKey)}
             session={sessions.find((s) => s.key === selectedKey)}
             liveEvents={liveEvents[selectedKey] ?? []}
           />

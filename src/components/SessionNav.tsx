@@ -2,16 +2,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { SessionSummary, SourceKind } from '@/lib/ui-types';
-import { personaFor, accentSoft } from '@/lib/persona';
+import { personaFor, accentSoft, type Persona } from '@/lib/persona';
 import { AgentAvatar } from './AgentAvatar';
 
+// Minutes granularity below 2h keeps neighboring rows distinguishable.
 function rel(iso: string, now: number): string {
   const s = Math.max(0, (now - new Date(iso).getTime()) / 1000);
   if (s < 60) return `${Math.floor(s)}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  if (s < 7200) return m % 60 ? `1h${m % 60}m` : '1h';
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   return `${Math.floor(s / 86400)}d`;
 }
+
+const STALL_MIN = 3;   // pending tool older than this: flag "may need approval"
+const STALL_HOT_MIN = 10;
 
 function folderOf(cwd: string | null): string {
   return cwd ? cwd.split('/').filter(Boolean).pop() ?? '?' : '?';
@@ -42,22 +48,39 @@ function AgentBadge({ agent }: { agent: SessionSummary['agent'] }) {
   );
 }
 
-function Row({ s, selected, onSelect, now, dups }: {
-  s: SessionSummary; selected: boolean; onSelect: (k: string) => void; now: number;
-  dups: Set<string>;
+function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
+  s: SessionSummary; persona: Persona; selected: boolean; onSelect: (k: string) => void;
+  now: number; dups: Set<string>; showAgent: boolean;
 }) {
-  const persona = personaFor(s.key);
   const soft = accentSoft(persona.hue);
   const project = projectLabel(s.cwd, dups);
-  const attention = s.status === 'needs_input' ? 'row-needs_input' : s.status === 'blocked' ? 'row-blocked' : '';
   const ended = s.status === 'ended';
+  const stalledMin = s.status === 'blocked'
+    ? Math.floor((now - new Date(s.lastActivity).getTime()) / 60000) : 0;
+  const stalled = s.status === 'blocked' && stalledMin >= STALL_MIN;
+  // Attention rows are physically louder: bigger avatar, bigger name, big chip.
+  const attention = s.status === 'needs_input' || stalled;
+  const rowClass =
+    s.status === 'needs_input' ? 'row-needs_input' :
+    stalled ? (stalledMin >= STALL_HOT_MIN ? 'row-stalled row-stalled-hot' : 'row-stalled') : '';
   const nowColor =
     s.status === 'working' ? 'var(--green-deep)' :
     s.status === 'needs_input' ? 'var(--amber)' :
-    s.status === 'blocked' ? 'var(--red)' : 'var(--text-dim)';
+    s.status === 'blocked' ? (stalled ? 'var(--amber-deep)' : 'var(--cyan)') : 'var(--text-dim)';
+  const avatarSize = attention ? 36 : 28;
+  const nameSize = attention ? 14.5 : ended ? 11.5 : 12.5;
+  const nowSize = attention ? 12 : 10.5;
+  const statusLabel =
+    s.status === 'blocked' ? (stalled ? 'stalled, may need approval' : 'running a tool')
+    : s.status.replace('_', ' ');
   const ref = useRef<HTMLDivElement>(null);
+  // Selection and focus are one system: selecting focuses the row and keeps
+  // it fully in view; focusing (click, Tab) selects it.
   useEffect(() => {
-    if (selected) ref.current?.scrollIntoView({ block: 'nearest' });
+    if (!selected) return;
+    const el = ref.current;
+    if (el && document.activeElement !== el) el.focus({ preventScroll: true });
+    el?.scrollIntoView({ block: 'nearest' });
   }, [selected]);
   return (
     <motion.div
@@ -66,30 +89,31 @@ function Row({ s, selected, onSelect, now, dups }: {
       transition={{ layout: { type: 'spring', stiffness: 500, damping: 40 } }}
       role="button"
       tabIndex={0}
-      aria-label={`${project}, ${persona.name}, ${s.status.replace('_', ' ')}`}
+      aria-label={`${project}, ${persona.name}, ${statusLabel}`}
       aria-pressed={selected}
       onClick={() => onSelect(s.key)}
+      onFocus={() => { if (!selected) onSelect(s.key); }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(s.key); }
       }}
-      className={`nav-row ${attention}`}
+      className={`nav-row ${rowClass}`}
       title={s.cwd ?? undefined}
       style={{
-        padding: '8px 10px 8px 8px',
+        padding: attention ? '10px 10px 10px 8px' : '8px 10px 8px 8px',
         cursor: 'pointer',
         borderLeft: `2px solid ${selected ? 'var(--green)' : 'transparent'}`,
         background: selected ? 'var(--sel-bg)' : undefined,
         opacity: ended ? 0.6 : 1,
       }}
     >
-      <div style={{ display: 'grid', gridTemplateColumns: '30px 1fr', columnGap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `${avatarSize + 2}px 1fr`, columnGap: 8 }}>
         <div style={{ gridRow: '1 / span 2', alignSelf: 'center' }}>
-          <AgentAvatar status={s.status} hue={persona.hue} size={28} />
+          <AgentAvatar status={s.status} hue={persona.hue} size={avatarSize} />
         </div>
         {/* primary line: WHERE (project · branch) + status chip + age */}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
           <b style={{
-            fontFamily: 'var(--font-display)', fontSize: 12.5, fontWeight: 700,
+            fontFamily: 'var(--font-display)', fontSize: nameSize, fontWeight: 700,
             letterSpacing: '0.02em', whiteSpace: 'nowrap', overflow: 'hidden',
             textOverflow: 'ellipsis', color: ended ? 'var(--text-dim)' : 'var(--text)',
           }}>
@@ -104,15 +128,15 @@ function Row({ s, selected, onSelect, now, dups }: {
             </span>
           )}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-            {s.status === 'needs_input' && <span className="chip-needs">NEEDS YOU</span>}
-            {s.status === 'blocked' && <span className="chip-blocked">APPROVE?</span>}
+            {s.status === 'needs_input' && <span className="chip-needs chip-lg">NEEDS YOU</span>}
+            {stalled && <span className="chip-stalled chip-lg">STALLED?</span>}
             <span style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>{rel(s.lastActivity, now)}</span>
           </span>
         </div>
         {/* secondary line: WHO (codename, flavor color) + agent/source chips */}
         <div style={{
           display: 'flex', gap: 6, alignItems: 'center', minWidth: 0,
-          fontSize: 10.5, color: 'var(--text-dim)',
+          fontSize: attention ? 11.5 : 10.5, color: 'var(--text-dim)',
         }}>
           <span style={{
             fontFamily: 'var(--font-display)', fontWeight: 600, letterSpacing: '0.03em',
@@ -121,7 +145,7 @@ function Row({ s, selected, onSelect, now, dups }: {
           }}>
             {persona.name}
           </span>
-          <AgentBadge agent={s.agent} />
+          {showAgent && <AgentBadge agent={s.agent} />}
           {s.steerable && (
             <span title="steerable" style={{ fontSize: 10, color: 'var(--cyan)', flexShrink: 0 }}>⌁</span>
           )}
@@ -130,7 +154,7 @@ function Row({ s, selected, onSelect, now, dups }: {
           </span>
         </div>
       </div>
-      <div style={{ paddingLeft: 38, marginTop: 3, minHeight: 15 }}>
+      <div style={{ paddingLeft: avatarSize + 10, marginTop: 3, minHeight: 15 }}>
         {s.now ? (
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
@@ -140,11 +164,13 @@ function Row({ s, selected, onSelect, now, dups }: {
               exit={{ y: -8, opacity: 0 }}
               transition={{ duration: 0.18 }}
               style={{
-                fontSize: 10.5, color: nowColor, whiteSpace: 'nowrap',
+                fontSize: nowSize, color: nowColor, whiteSpace: 'nowrap',
                 overflow: 'hidden', textOverflow: 'ellipsis',
               }}
             >
-              {s.status === 'working' ? '⚙ ' : ''}{s.now}
+              {s.status === 'working' ? '⚙ ' : s.status === 'blocked' ? '⏳ ' : ''}
+              {s.now}
+              {s.status === 'blocked' ? ` — ${rel(s.lastActivity, now)}` : ''}
             </motion.div>
           </AnimatePresence>
         ) : s.status === 'working' ? (
@@ -165,6 +191,8 @@ function Row({ s, selected, onSelect, now, dups }: {
 function GroupHeader({ label, count }: { label: string; count: number }) {
   return (
     <div style={{
+      // opaque + raised so rows animating between bands slide under it cleanly
+      position: 'relative', zIndex: 2, background: 'var(--bg-nav)',
       display: 'flex', alignItems: 'center', gap: 8, padding: '14px 10px 4px',
       fontFamily: 'var(--font-display)', fontSize: 10, fontWeight: 700,
       letterSpacing: '0.22em', color: 'var(--text-faint)', textTransform: 'uppercase',
@@ -176,8 +204,9 @@ function GroupHeader({ label, count }: { label: string; count: number }) {
   );
 }
 
-export function SessionNav({ sessions, selectedKey, onSelect, filter, onFilter }: {
-  sessions: SessionSummary[]; selectedKey: string | null; onSelect: (k: string) => void;
+export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, onFilter }: {
+  sessions: SessionSummary[]; personas: Map<string, Persona>; selectedKey: string | null;
+  onSelect: (k: string) => void;
   filter: SourceKind | 'all'; onFilter: (f: SourceKind | 'all') => void;
 }) {
   // 10s tick keeps the relative times fresh between stream frames
@@ -191,6 +220,9 @@ export function SessionNav({ sessions, selectedKey, onSelect, filter, onFilter }
   const visible = sessions.filter((s) => filter === 'all' || s.source === filter);
   const live = visible.filter((s) => s.status !== 'ended');
   const recent = visible.filter((s) => s.status === 'ended');
+
+  // The agent badge distinguishes nothing when the whole fleet is one agent.
+  const mixedAgents = new Set(visible.map((s) => s.agent)).size > 1;
 
   // folder names that appear on more than one visible row
   const dups = useMemo(() => {
@@ -208,7 +240,7 @@ export function SessionNav({ sessions, selectedKey, onSelect, filter, onFilter }
   return (
     <nav className="nav-scroll session-nav">
       <div style={{
-        position: 'sticky', top: 0, zIndex: 1, display: 'flex', gap: 8, alignItems: 'center',
+        position: 'sticky', top: 0, zIndex: 3, display: 'flex', gap: 8, alignItems: 'center',
         padding: '12px 10px', background: 'var(--bg-nav)', borderBottom: '1px solid var(--border)',
       }}>
         <span style={{
@@ -238,14 +270,22 @@ export function SessionNav({ sessions, selectedKey, onSelect, filter, onFilter }
         <div style={{ padding: '4px 10px', fontSize: 10.5, color: 'var(--text-faint)' }}>— none —</div>
       )}
       {live.map((s) => (
-        <Row key={s.key} s={s} selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups} />
+        <Row
+          key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
+          selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups}
+          showAgent={mixedAgents}
+        />
       ))}
       <GroupHeader label="Recent" count={recent.length} />
       {recent.length === 0 && (
         <div style={{ padding: '4px 10px', fontSize: 10.5, color: 'var(--text-faint)' }}>— none —</div>
       )}
       {recent.map((s) => (
-        <Row key={s.key} s={s} selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups} />
+        <Row
+          key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
+          selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups}
+          showAgent={mixedAgents}
+        />
       ))}
       <div style={{ height: 24 }} />
     </nav>

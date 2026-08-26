@@ -57,12 +57,16 @@ html, body {
 }
 .app-main { flex: 1; height: 100vh; overflow: hidden; min-width: 0; }
 
-/* narrow window: stack the list above the detail pane */
+/* narrow window: stack the list above the detail pane. The nav sizes to its
+   content up to a cap, so a short list never leaves a dead scroll area and
+   the Recent rows render right under their header. */
 @media (max-width: 700px) {
   .app-shell { flex-direction: column; height: 100vh; }
   .session-nav {
     width: 100%;
-    height: 42vh;
+    height: auto;
+    max-height: 48vh;
+    flex-shrink: 0;
     border-right: none;
     border-bottom: 1px solid var(--border-strong);
   }
@@ -91,10 +95,6 @@ html, body {
   0%, 100% { background-color: rgba(245, 158, 11, 0.05); }
   50%      { background-color: rgba(245, 158, 11, 0.14); }
 }
-@keyframes glow-row-red {
-  0%, 100% { background-color: rgba(239, 68, 68, 0.05); }
-  50%      { background-color: rgba(239, 68, 68, 0.13); }
-}
 
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .dot-working     { background: var(--green); animation: pulse-work 1.2s ease-in-out infinite; }
@@ -108,13 +108,15 @@ html, body {
   background-color: rgba(245, 158, 11, 0.08);
   animation: glow-row 1.2s ease-in-out 3;
 }
-.row-blocked {
-  background-color: rgba(239, 68, 68, 0.08);
-  animation: glow-row-red 0.9s ease-in-out 4;
+/* stalled tool call: escalating amber tint, honest not alarmist */
+.row-stalled { background-color: rgba(245, 158, 11, 0.05); }
+.row-stalled-hot {
+  background-color: rgba(245, 158, 11, 0.12);
+  animation: glow-row 1.2s ease-in-out 3;
 }
 
 /* filled status chips: the loudest element on an attention row */
-.chip-needs, .chip-blocked {
+.chip-needs, .chip-stalled {
   font-family: var(--font-display);
   font-size: 9.5px;
   font-weight: 700;
@@ -125,7 +127,13 @@ html, body {
   flex-shrink: 0;
 }
 .chip-needs { background: var(--amber); color: #1c1403; }
-.chip-blocked { background: var(--red); color: #1e0808; }
+/* outline, not filled: a stall is a maybe, not a confirmed ask */
+.chip-stalled {
+  border: 1px solid var(--amber-deep);
+  color: var(--amber-deep);
+  background: rgba(245, 158, 11, 0.08);
+}
+.chip-lg { font-size: 10.5px; line-height: 18px; padding: 0 7px; }
 
 /* steady cursor block in the wordmark */
 .cursor-blink { opacity: 0.9; }
@@ -152,7 +160,7 @@ html, body {
 
 @media (prefers-reduced-motion: reduce) {
   .dot-working, .dot-needs_input, .dot-blocked,
-  .row-needs_input, .row-blocked,
+  .row-needs_input, .row-stalled-hot,
   .typing i,
   .av-tip-working, .av-alarm { animation: none; }
 }
