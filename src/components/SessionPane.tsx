@@ -4,8 +4,30 @@ import type { AgentEvent, SessionSummary } from '@/lib/ui-types';
 import { ConversationView } from './ConversationView';
 import { ActivityFeed } from './ActivityFeed';
 import { TerminalView } from './TerminalView';
-import { personaFor, accentSoft } from '@/lib/persona';
+import { accentSoft, type Persona } from '@/lib/persona';
 import { AgentAvatar } from './AgentAvatar';
+
+// Client-side transcript cache: revisiting a session renders instantly
+// instead of flashing "loading…". Bounded LRU, freshest last.
+const MAX_CACHED = 10;
+const snapshotCache = new Map<string, AgentEvent[]>();
+function cachePut(key: string, events: AgentEvent[]): void {
+  snapshotCache.delete(key);
+  snapshotCache.set(key, events);
+  if (snapshotCache.size > MAX_CACHED) {
+    const oldest = snapshotCache.keys().next().value;
+    if (oldest !== undefined) snapshotCache.delete(oldest);
+  }
+}
+
+function relDur(iso: string, now: number): string {
+  const m = Math.floor(Math.max(0, now - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'under 1m';
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
+}
+
+const STALL_MIN = 3;
 
 // There is no reply channel for non-steerable sessions; the honest fallback
 // is telling the user where the real prompt lives.
@@ -19,12 +41,15 @@ function respondHint(session: SessionSummary | undefined): string {
 const TABS = ['conversation', 'activity', 'terminal'] as const;
 type Tab = (typeof TABS)[number];
 
-export function SessionPane({ sessionKey, session, liveEvents }: {
+export function SessionPane({ sessionKey, persona, session, liveEvents }: {
   sessionKey: string;
+  persona: Persona;
   session: SessionSummary | undefined;
   liveEvents: AgentEvent[];
 }) {
-  const [snapshot, setSnapshot] = useState<AgentEvent[] | null>(null);
+  // Seed from the cache so cycling with j/k never blanks the pane.
+  const [snapshot, setSnapshot] = useState<AgentEvent[] | null>(
+    () => snapshotCache.get(sessionKey) ?? null);
   const [tab, setTab] = useState<Tab>('conversation');
   const tabs = session?.steerable ? TABS : TABS.filter((t) => t !== 'terminal');
 
@@ -35,11 +60,15 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
 
   useEffect(() => {
     let cancelled = false;
-    setSnapshot(null);
+    setSnapshot(snapshotCache.get(sessionKey) ?? null);
     fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/events`)
       .then((r) => r.json())
-      .then((d) => { if (!cancelled) setSnapshot(Array.isArray(d.events) ? d.events : []); })
-      .catch(() => { if (!cancelled) setSnapshot([]); });
+      .then((d) => {
+        const events = Array.isArray(d.events) ? d.events : [];
+        cachePut(sessionKey, events);
+        if (!cancelled) setSnapshot(events);
+      })
+      .catch(() => { if (!cancelled) setSnapshot((prev) => prev ?? []); });
     return () => { cancelled = true; };
   }, [sessionKey]);
 
@@ -76,15 +105,27 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
       lastRefetch.current = Date.now();
       fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/events`)
         .then((r) => r.json())
-        .then((d) => { if (!cancelled && Array.isArray(d.events)) setSnapshot(d.events); })
+        .then((d) => {
+          if (!Array.isArray(d.events)) return;
+          cachePut(sessionKey, d.events);
+          if (!cancelled) setSnapshot(d.events);
+        })
         .catch(() => {});
     }, 400);
     return () => { cancelled = true; clearTimeout(t); };
   }, [session, snapshot, events.length, sessionKey]);
 
-  const persona = personaFor(sessionKey);
   const soft = accentSoft(persona.hue);
   const project = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : null;
+
+  // 10s tick keeps the pending-tool elapsed time honest between frames.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 10_000);
+    return () => clearInterval(t);
+  }, []);
+  const stalled = session?.status === 'blocked'
+    && nowMs - new Date(session.lastActivity).getTime() >= STALL_MIN * 60000;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -157,17 +198,22 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
       )}
       {session?.status === 'needs_input' && (
         <div className="strip row-needs_input" style={{ color: 'var(--amber)', fontWeight: 600 }}>
-          ⏸ waiting for your input{session.now ? ` — ${session.now}` : ''}
+          ⏸ {persona.name} needs you{session.now ? ` — ${session.now}` : ''}
           <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
             · {respondHint(session)}
           </span>
         </div>
       )}
       {session?.status === 'blocked' && (
-        <div className="strip row-blocked" style={{ color: 'var(--red)', fontWeight: 600 }}>
-          ⚠ likely waiting on a permission prompt{session.now ? ` — ${session.now}` : ''}
+        <div
+          className={`strip ${stalled ? 'row-stalled-hot' : ''}`}
+          style={{ color: stalled ? 'var(--amber-deep)' : 'var(--cyan)', fontWeight: 600 }}
+        >
+          ⏳ {session.now ?? 'running a tool'} — {relDur(session.lastActivity, nowMs)}
           <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
-            · {respondHint(session)}
+            {stalled
+              ? `· no result yet — may need approval · ${respondHint(session)}`
+              : '· tool still running'}
           </span>
         </div>
       )}

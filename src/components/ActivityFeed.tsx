@@ -2,18 +2,18 @@
 import { useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import type { AgentEvent } from '@/lib/ui-types';
-import { describeToolCall } from '@/lib/describe';
+import { describeToolCall, plainText } from '@/lib/describe';
 
 const CLIP = 140;
 
 function row(e: AgentEvent): { glyph: string; color: string; text: string; raw?: string } {
   switch (e.kind) {
     case 'user_message':
-      return { glyph: '❯', color: 'var(--green)', text: e.text.slice(0, CLIP) };
+      return { glyph: '❯', color: 'var(--green)', text: plainText(e.text.slice(0, CLIP * 2)).slice(0, CLIP) };
     case 'assistant_message':
-      return { glyph: '◆', color: 'var(--text-dim)', text: e.text.slice(0, CLIP) };
+      return { glyph: '◆', color: 'var(--text-dim)', text: plainText(e.text.slice(0, CLIP * 2)).slice(0, CLIP) };
     case 'thinking':
-      return { glyph: '∴', color: 'var(--text-faint)', text: e.text.slice(0, CLIP) };
+      return { glyph: '∴', color: 'var(--text-faint)', text: plainText(e.text.slice(0, CLIP * 2)).slice(0, CLIP) };
     case 'tool_call':
       // humanized summary; the raw payload survives on hover
       return { glyph: '⚙', color: 'var(--cyan)', text: describeToolCall(e.name, e.input), raw: `${e.name} ${e.input.slice(0, 800)}` };

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import type { AgentEvent } from '@/lib/ui-types';
+import { prettyToolInput, shortToolName } from '@/lib/describe';
 
 const MAX_TOOL_BODY = 4000;
 const MAX_THINKING = 300;
@@ -11,9 +12,10 @@ function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_r
   const [open, setOpen] = useState(false);
   const isCall = e.kind === 'tool_call';
   const glyph = isCall ? '→' : e.isError ? '✗' : '✓';
-  const label = isCall ? e.name : e.isError ? 'error' : 'result';
+  const label = isCall ? shortToolName(e.name) : e.isError ? 'error' : 'result';
   const color = isCall ? 'var(--cyan)' : e.isError ? 'var(--red)' : 'var(--green-deep)';
-  const body = isCall ? e.input : e.output;
+  // calls expand to key: value lines instead of raw JSON
+  const body = isCall ? prettyToolInput(e.input) : e.output;
   return (
     <div style={{ margin: '2px 0' }}>
       <button className="tool-toggle" onClick={() => setOpen(!open)} style={{ color }}>
