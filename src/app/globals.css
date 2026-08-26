@@ -45,7 +45,7 @@ html, body {
 
 /* ---- app shell -------------------------------------------------- */
 
-.app-shell { display: flex; background: var(--bg); }
+.app-shell { display: flex; background: var(--bg); max-width: 100vw; overflow-x: clip; }
 .session-nav {
   position: relative;
   width: 320px;

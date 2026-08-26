@@ -50,6 +50,10 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
       term.loadAddon(fit);
       term.open(ref.current);
       fit.fit();
+      // Refit once layout and fonts settle; a fit that raced either can size
+      // the terminal wider than the pane and force page-level overflow.
+      requestAnimationFrame(() => { try { fit.fit(); } catch {} });
+      document.fonts?.ready.then(() => { if (!disposed) try { fit.fit(); } catch {} });
       ro = new ResizeObserver(() => { try { fit.fit(); } catch {} });
       ro.observe(ref.current);
 
@@ -78,7 +82,7 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
   }, [sessionKey]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0d0b' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0, overflow: 'hidden', background: '#0a0d0b' }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8, padding: '5px 18px',
         borderBottom: '1px solid var(--border)', background: 'var(--bg-raised)', flexShrink: 0,
@@ -97,7 +101,7 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
           {LINK_LABEL[link]}
         </span>
       </div>
-      <div ref={ref} style={{ flex: 1, minHeight: 0, padding: '8px 2px 8px 12px' }} />
+      <div ref={ref} style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', padding: '8px 2px 8px 12px' }} />
     </div>
   );
 }

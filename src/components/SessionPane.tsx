@@ -83,13 +83,24 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
   // Seed from the cache so cycling with j/k never blanks the pane.
   const [snapshot, setSnapshot] = useState<AgentEvent[] | null>(
     () => snapshotCache.get(sessionKey) ?? null);
-  const [tab, setTab] = useState<Tab>('conversation');
+  // Steerable sessions open straight into their live terminal.
+  const [tab, setTab] = useState<Tab>(session?.steerable ? 'terminal' : 'conversation');
   const tabs = session?.steerable ? TABS : TABS.filter((t) => t !== 'terminal');
 
   // The terminal tab vanishes when the bridge drops; leave it with it.
   useEffect(() => {
     if (tab === 'terminal' && !session?.steerable) setTab('conversation');
   }, [tab, session?.steerable]);
+
+  // If the summary had not loaded at mount, apply the terminal default once
+  // when it arrives; never override a choice made after that.
+  const defaultApplied = useRef(session !== undefined);
+  useEffect(() => {
+    if (!defaultApplied.current && session) {
+      defaultApplied.current = true;
+      if (session.steerable) setTab('terminal');
+    }
+  }, [session]);
 
   // Live-terminal preview lifecycle: mount while steerable; when the bridge
   // drops, keep it mounted briefly so the card can animate away.
