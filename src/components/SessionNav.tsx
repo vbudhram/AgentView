@@ -16,8 +16,8 @@ function rel(iso: string, now: number): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
-const STALL_MIN = 3;   // pending tool older than this: flag "may need approval"
-const STALL_HOT_MIN = 10;
+// A pending tool this old gets a quiet "may need approval" note — no alarm.
+const APPROVAL_HINT_MIN = 10;
 
 function folderOf(cwd: string | null): string {
   return cwd ? cwd.split('/').filter(Boolean).pop() ?? '?' : '?';
@@ -55,24 +55,21 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
   const soft = accentSoft(persona.hue);
   const project = projectLabel(s.cwd, dups);
   const ended = s.status === 'ended';
-  const stalledMin = s.status === 'blocked'
+  const pendingMin = s.status === 'blocked'
     ? Math.floor((now - new Date(s.lastActivity).getTime()) / 60000) : 0;
-  const stalled = s.status === 'blocked' && stalledMin >= STALL_MIN;
+  const longPending = pendingMin >= APPROVAL_HINT_MIN;
   // Attention rows are physically louder: bigger avatar, bigger name, big chip.
-  const attention = s.status === 'needs_input' || stalled;
-  const rowClass =
-    s.status === 'needs_input' ? 'row-needs_input' :
-    stalled ? (stalledMin >= STALL_HOT_MIN ? 'row-stalled row-stalled-hot' : 'row-stalled') : '';
+  const attention = s.status === 'needs_input';
+  const rowClass = s.status === 'needs_input' ? 'row-needs_input' : '';
   const nowColor =
     s.status === 'working' ? 'var(--green-deep)' :
     s.status === 'needs_input' ? 'var(--amber)' :
-    s.status === 'blocked' ? (stalled ? 'var(--amber-deep)' : 'var(--cyan)') : 'var(--text-dim)';
+    s.status === 'blocked' ? 'var(--cyan)' : 'var(--text-dim)';
   const avatarSize = attention ? 36 : 28;
   const nameSize = attention ? 14.5 : ended ? 11.5 : 12.5;
   const nowSize = attention ? 12 : 10.5;
   const statusLabel =
-    s.status === 'blocked' ? (stalled ? 'stalled, may need approval' : 'running a tool')
-    : s.status.replace('_', ' ');
+    s.status === 'blocked' ? 'running a tool' : s.status.replace('_', ' ');
   const ref = useRef<HTMLDivElement>(null);
   // Selection and focus are one system: selecting focuses the row and keeps
   // it fully in view; focusing (click, Tab) selects it.
@@ -131,7 +128,6 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
           )}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
             {s.status === 'needs_input' && <span className="chip-needs chip-lg">NEEDS YOU</span>}
-            {stalled && <span className="chip-stalled chip-lg">STALLED?</span>}
             <span style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>{rel(s.lastActivity, now)}</span>
           </span>
         </div>
@@ -173,6 +169,9 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
               {s.status === 'working' ? '⚙ ' : s.status === 'blocked' ? '⏳ ' : ''}
               {s.now}
               {s.status === 'blocked' ? ` — ${rel(s.lastActivity, now)}` : ''}
+              {s.status === 'blocked' && longPending ? (
+                <span style={{ color: 'var(--text-dim)' }}> · may need approval</span>
+              ) : null}
             </motion.div>
           </AnimatePresence>
         ) : s.status === 'working' ? (

@@ -27,7 +27,8 @@ function relDur(iso: string, now: number): string {
   return `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
 }
 
-const STALL_MIN = 3;
+// A pending tool this old gets a quiet "may need approval" note — no alarm.
+const APPROVAL_HINT_MIN = 10;
 
 // There is no reply channel for non-steerable sessions; the honest fallback
 // is telling the user where the real prompt lives.
@@ -37,6 +38,7 @@ function respondHint(session: SessionSummary | undefined): string {
   if (session.source === 'desktop') return 'respond in Claude Desktop';
   return 'respond in the terminal running this session';
 }
+
 
 const TABS = ['conversation', 'activity', 'terminal'] as const;
 type Tab = (typeof TABS)[number];
@@ -124,8 +126,8 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
     const t = setInterval(() => setNowMs(Date.now()), 10_000);
     return () => clearInterval(t);
   }, []);
-  const stalled = session?.status === 'blocked'
-    && nowMs - new Date(session.lastActivity).getTime() >= STALL_MIN * 60000;
+  const longPending = session?.status === 'blocked'
+    && nowMs - new Date(session.lastActivity).getTime() >= APPROVAL_HINT_MIN * 60000;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -205,15 +207,10 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
         </div>
       )}
       {session?.status === 'blocked' && (
-        <div
-          className={`strip ${stalled ? 'row-stalled-hot' : ''}`}
-          style={{ color: stalled ? 'var(--amber-deep)' : 'var(--cyan)', fontWeight: 600 }}
-        >
+        <div className="strip" style={{ color: 'var(--cyan)', fontWeight: 600 }}>
           ⏳ {session.now ?? 'running a tool'} — {relDur(session.lastActivity, nowMs)}
           <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
-            {stalled
-              ? `· no result yet — may need approval · ${respondHint(session)}`
-              : '· tool still running'}
+            {longPending ? '· still running — may need approval' : '· tool still running'}
           </span>
         </div>
       )}

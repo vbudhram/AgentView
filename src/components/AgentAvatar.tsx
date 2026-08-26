@@ -14,7 +14,7 @@ export function AgentAvatar({ status, hue, size = 28 }: {
   const tipColor =
     status === 'working' ? 'var(--green)' :
     status === 'needs_input' ? 'var(--amber)' :
-    status === 'blocked' ? 'var(--amber-deep)' :
+    status === 'blocked' ? 'var(--cyan)' :
     ended ? 'var(--ended)' : accent;
 
   return (
@@ -26,7 +26,7 @@ export function AgentAvatar({ status, hue, size = 28 }: {
       <line x1="16" y1="3.4" x2="16" y2="6.6" stroke={dim} strokeWidth="1.8" />
       <circle
         cx="16" cy="3.2" r="2.2" fill={tipColor}
-        className={status === 'working' ? 'av-tip-working' : status === 'blocked' ? 'av-alarm' : ''}
+        className={status === 'working' || status === 'blocked' ? 'av-tip-working' : ''}
       />
       {/* head */}
       <rect
@@ -63,12 +63,12 @@ export function AgentAvatar({ status, hue, size = 28 }: {
 
       {status === 'blocked' && (
         <g>
-          {/* stalled: wide watchful eyes, flat mouth — waiting, not panicking */}
-          <circle cx="12" cy="16.4" r="3.4" fill="#e8ecea" className="av-alarm" />
-          <circle cx="20" cy="16.4" r="3.4" fill="#e8ecea" className="av-alarm" />
+          {/* tool pending: patient watchful eyes, flat mouth — waiting calmly */}
+          <circle cx="12" cy="16.4" r="3.4" fill="#e8ecea" />
+          <circle cx="20" cy="16.4" r="3.4" fill="#e8ecea" />
           <circle cx="12" cy="16.6" r="1.6" fill="#111614" />
           <circle cx="20" cy="16.6" r="1.6" fill="#111614" />
-          <line x1="13" y1="23" x2="19" y2="23" stroke="var(--amber-deep)" strokeWidth="1.8" strokeLinecap="round" />
+          <line x1="13" y1="23" x2="19" y2="23" stroke="var(--text-dim)" strokeWidth="1.8" strokeLinecap="round" />
         </g>
       )}
 

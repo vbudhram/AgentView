@@ -108,15 +108,8 @@ html, body {
   background-color: rgba(245, 158, 11, 0.08);
   animation: glow-row 1.2s ease-in-out 3;
 }
-/* stalled tool call: escalating amber tint, honest not alarmist */
-.row-stalled { background-color: rgba(245, 158, 11, 0.05); }
-.row-stalled-hot {
-  background-color: rgba(245, 158, 11, 0.12);
-  animation: glow-row 1.2s ease-in-out 3;
-}
-
-/* filled status chips: the loudest element on an attention row */
-.chip-needs, .chip-stalled {
+/* filled status chip: the loudest element on an attention row */
+.chip-needs {
   font-family: var(--font-display);
   font-size: 9.5px;
   font-weight: 700;
@@ -125,13 +118,8 @@ html, body {
   padding: 0 6px;
   border-radius: 3px;
   flex-shrink: 0;
-}
-.chip-needs { background: var(--amber); color: #1c1403; }
-/* outline, not filled: a stall is a maybe, not a confirmed ask */
-.chip-stalled {
-  border: 1px solid var(--amber-deep);
-  color: var(--amber-deep);
-  background: rgba(245, 158, 11, 0.08);
+  background: var(--amber);
+  color: #1c1403;
 }
 .chip-lg { font-size: 10.5px; line-height: 18px; padding: 0 7px; }
 
@@ -160,7 +148,7 @@ html, body {
 
 @media (prefers-reduced-motion: reduce) {
   .dot-working, .dot-needs_input, .dot-blocked,
-  .row-needs_input, .row-stalled-hot,
+  .row-needs_input,
   .typing i,
   .av-tip-working, .av-alarm { animation: none; }
 }

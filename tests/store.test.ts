@@ -145,7 +145,7 @@ describe('SessionStore', () => {
     expect(f2?.now).toBe('Bash: npm test');
   });
 
-  it('sorts summaries by triage band: blocked, needs_input, working, idle, ended', () => {
+  it('pins needs_input on top; a pending tool call sits in the working band', () => {
     const s = new SessionStore();
     const ev = (kind: 'tool_call' | 'assistant_message' | 'user_message', ts: string): ParsedLine => ({
       events: [kind === 'tool_call'
@@ -159,7 +159,18 @@ describe('SessionStore', () => {
     s.apply('claude', 'ended', ev('assistant_message', '2026-08-26T10:04:00Z'));
     s.setAliveCwds(new Set(['/w', '/b', '/n', '/i']));
     const order = s.summaries(new Date('2026-08-26T10:05:00Z')).map((x) => x.key);
-    expect(order).toEqual(['claude:blocked', 'claude:needs', 'claude:working', 'claude:idle', 'claude:ended']);
+    // needs_input pins the top; blocked shares the working band (recency inside it)
+    expect(order).toEqual(['claude:needs', 'claude:working', 'claude:blocked', 'claude:idle', 'claude:ended']);
+  });
+
+  it('never ranks a long-pending tool call above a needs_input session', () => {
+    const s = new SessionStore();
+    // pending tool with fresher activity than the needs_input session
+    s.apply('claude', 'pending', { events: [{ kind: 'tool_call', ts: '2026-08-26T10:04:00Z', name: 'Bash', input: '{}' }], meta: { sessionId: 'p', cwd: '/pnd', source: 'terminal' } });
+    s.apply('claude', 'needs', { events: [{ kind: 'assistant_message', ts: '2026-08-26T09:30:00Z', text: 'done?' }], meta: { sessionId: 'n', cwd: '/n', source: 'terminal' } });
+    s.setAliveCwds(new Set(['/pnd', '/n']));
+    const order = s.summaries(new Date('2026-08-26T10:20:00Z')).map((x) => x.key);
+    expect(order).toEqual(['claude:needs', 'claude:pending']);
   });
 
   it('leaves now null for idle and ended sessions', () => {

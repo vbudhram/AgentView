@@ -116,9 +116,10 @@ export class SessionStore extends EventEmitter {
       }
       out.push({ key, agent: rec.agent, sessionId: rec.sessionId, cwd: rec.cwd, source: rec.source, title: rec.title, lastActivity: rec.lastActivity, status, steerable: rec.steerable, eventCount: rec.events.length, lastTool: lastTool?.kind === 'tool_call' ? lastTool.name : null, gitBranch: rec.gitBranch, now: nowLine });
     }
-    // Triage order: attention first, then activity. Recency breaks ties inside
-    // each band, so the longest-neglected attention row still sits in its band.
-    const RANK: Record<SessionStatus, number> = { blocked: 0, needs_input: 1, working: 2, idle: 3, ended: 4 };
+    // Triage order: needs_input is the only confirmed "needs you" and pins the
+    // top. A pending tool call (blocked) is working state, not an alarm, so it
+    // shares the working band. Recency breaks ties inside each band.
+    const RANK: Record<SessionStatus, number> = { needs_input: 0, working: 1, blocked: 1, idle: 2, ended: 3 };
     return out.sort((a, b) =>
       RANK[a.status] - RANK[b.status] || (a.lastActivity < b.lastActivity ? 1 : -1));
   }
