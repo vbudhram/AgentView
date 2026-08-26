@@ -227,8 +227,15 @@ html, body {
   font-family: var(--font-mono);
   font-size: 11.5px;
   text-align: left;
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tool-toggle:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* inline evidence on the collapsed row: dim, one line, gives way first */
+.tool-detail { color: var(--text-dim); margin-left: 8px; font-weight: 400; }
 .tool-body {
   margin: 4px 0 6px 14px;
   padding: 8px 10px;

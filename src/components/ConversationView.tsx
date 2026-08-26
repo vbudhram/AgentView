@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentEvent } from '@/lib/ui-types';
-import { prettyToolInput, shortToolName } from '@/lib/describe';
+import { describeToolCall, prettyToolInput, shortToolName } from '@/lib/describe';
 
 // GFM (tables, autolinked URLs, strikethrough) plus theme-fitting renderers:
 // links open in a new tab; wide tables scroll inside their own container.
@@ -27,12 +27,33 @@ function Markdown({ text }: { text: string }) {
 const MAX_TOOL_BODY = 4000;
 const MAX_THINKING = 300;
 
+// Collapsed rows carry the evidence inline: the command for a call, a size
+// summary + first line for a result. Clicking still expands the full payload.
+function toolCallSummary(name: string, input: string): { label: string; detail: string } {
+  const label = shortToolName(name);
+  const described = describeToolCall(name, input);
+  const detail = described.startsWith(`${label}: `) ? described.slice(label.length + 2) : '';
+  return { label, detail };
+}
+
+function toolResultSummary(output: string, isError: boolean): { label: string; detail: string } {
+  const trimmed = output.trim();
+  if (!trimmed) return { label: isError ? 'error' : 'result', detail: '(empty)' };
+  const lines = trimmed.split('\n');
+  const first = lines[0].replace(/\s+/g, ' ').trim();
+  const firstCut = first.length > 80 ? `${first.slice(0, 80)}…` : first;
+  const label = isError ? 'error' : lines.length > 1 ? `${lines.length} lines` : 'result';
+  return { label, detail: firstCut };
+}
+
 function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_result' }> }) {
   const [open, setOpen] = useState(false);
   const isCall = e.kind === 'tool_call';
   const glyph = isCall ? '→' : e.isError ? '✗' : '✓';
-  const label = isCall ? shortToolName(e.name) : e.isError ? 'error' : 'result';
   const color = isCall ? 'var(--cyan)' : e.isError ? 'var(--red)' : 'var(--green-deep)';
+  const { label, detail } = isCall
+    ? toolCallSummary(e.name, e.input)
+    : toolResultSummary(e.output, e.isError ?? false);
   // calls expand to key: value lines instead of raw JSON
   const body = isCall ? prettyToolInput(e.input) : e.output;
   return (
@@ -42,6 +63,9 @@ function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_r
           {open ? '▾' : '▸'}
         </span>
         {glyph} {label}
+        {detail && (
+          <span className="tool-detail">{detail}</span>
+        )}
       </button>
       <AnimatePresence initial={false}>
         {open && (
