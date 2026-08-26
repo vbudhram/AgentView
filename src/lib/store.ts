@@ -26,7 +26,7 @@ interface SessionRec {
 // chars with a trailing ellipsis. The start of a question carries the request.
 function messageHead(text: string): string {
   const lines = text.trim().split('\n')
-    .map((l) => l.replace(/^[#>*\-\s]+/, '').replace(/\*\*/g, '').trim())
+    .map((l) => l.replace(/^[#>*\-\s]+/, '').replace(/<[^>\n]{0,80}>/g, ' ').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim())
     .filter(Boolean);
   const line = lines.find((l) => l.length >= 10 || l.includes('?')) ?? lines[0] ?? '';
   if (line.length <= 120) return line;
@@ -103,13 +103,24 @@ export class SessionStore extends EventEmitter {
         nowLine = describeToolCall(lastTool.name, lastTool.input);
       } else if (status === 'needs_input') {
         const lastMsg = [...rec.events].reverse().find((e) => e.kind === 'assistant_message');
-        if (lastMsg?.kind === 'assistant_message') nowLine = `asked: ${messageHead(lastMsg.text)}`;
+        if (lastMsg?.kind === 'assistant_message') {
+          const head = messageHead(lastMsg.text);
+          // "asked:" only when it is a question; a statement gets an honest label
+          nowLine = `${head.includes('?') ? 'asked' : 'said'}: ${head}`;
+        }
       } else if (status === 'blocked' && last?.kind === 'tool_call') {
-        nowLine = `wants: ${describeToolCall(last.name, last.input)}`;
+        // A pending tool_call only proves the tool did not return yet. It can be
+        // a long-running approved tool or a permission prompt; present elapsed
+        // truth ("running X"), never a hard approval claim.
+        nowLine = `running ${describeToolCall(last.name, last.input)}`;
       }
       out.push({ key, agent: rec.agent, sessionId: rec.sessionId, cwd: rec.cwd, source: rec.source, title: rec.title, lastActivity: rec.lastActivity, status, steerable: rec.steerable, eventCount: rec.events.length, lastTool: lastTool?.kind === 'tool_call' ? lastTool.name : null, gitBranch: rec.gitBranch, now: nowLine });
     }
-    return out.sort((a, b) => (a.lastActivity < b.lastActivity ? 1 : -1));
+    // Triage order: attention first, then activity. Recency breaks ties inside
+    // each band, so the longest-neglected attention row still sits in its band.
+    const RANK: Record<SessionStatus, number> = { blocked: 0, needs_input: 1, working: 2, idle: 3, ended: 4 };
+    return out.sort((a, b) =>
+      RANK[a.status] - RANK[b.status] || (a.lastActivity < b.lastActivity ? 1 : -1));
   }
 
   events(key: string): AgentEvent[] { return this.sessions.get(key)?.events ?? []; }

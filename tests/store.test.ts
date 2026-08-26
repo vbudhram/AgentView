@@ -117,7 +117,7 @@ describe('SessionStore', () => {
     expect(long[body.length]).toBe(' ');
   });
 
-  it('computes a blocked now-line from the pending tool call', () => {
+  it('presents a pending tool call as running, never as an approval claim', () => {
     const s = new SessionStore();
     s.apply('claude', 'f1', {
       events: [{ kind: 'tool_call', ts: '2026-08-26T10:00:00Z', name: 'Bash', input: JSON.stringify({ command: 'rm -rf build' }) }],
@@ -126,7 +126,40 @@ describe('SessionStore', () => {
     s.setAliveCwds(new Set(['/p']));
     const [sum] = s.summaries(new Date('2026-08-26T10:05:00Z'));
     expect(sum.status).toBe('blocked');
-    expect(sum.now).toBe('wants: Bash: rm -rf build');
+    expect(sum.now).toBe('running Bash: rm -rf build');
+  });
+
+  it('labels a non-question needs_input message with said:, and strips cd prefixes from commands', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', {
+      events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: 'Nothing to squash, and nothing to push.' }],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
+    });
+    s.setAliveCwds(new Set(['/p']));
+    expect(s.summaries(new Date('2026-08-26T10:05:00Z'))[0].now)
+      .toBe('said: Nothing to squash, and nothing to push.');
+    s.apply('claude', 'f2', { events: [
+      { kind: 'tool_call', ts: '2026-08-26T10:00:00Z', name: 'Bash', input: JSON.stringify({ command: 'cd /Users/me/proj && npm test' }) },
+    ] });
+    const f2 = s.summaries(new Date('2026-08-26T10:00:10Z')).find((x) => x.key === 'claude:f2');
+    expect(f2?.now).toBe('Bash: npm test');
+  });
+
+  it('sorts summaries by triage band: blocked, needs_input, working, idle, ended', () => {
+    const s = new SessionStore();
+    const ev = (kind: 'tool_call' | 'assistant_message' | 'user_message', ts: string): ParsedLine => ({
+      events: [kind === 'tool_call'
+        ? { kind, ts, name: 'Bash', input: '{}' }
+        : { kind, ts, text: 'x' }],
+    });
+    s.apply('claude', 'working', { events: [{ kind: 'user_message', ts: '2026-08-26T10:04:50Z', text: 'x' }], meta: { sessionId: 'w', cwd: '/w', source: 'terminal' } });
+    s.apply('claude', 'blocked', { events: [{ kind: 'tool_call', ts: '2026-08-26T10:00:00Z', name: 'Bash', input: '{}' }], meta: { sessionId: 'b', cwd: '/b', source: 'terminal' } });
+    s.apply('claude', 'needs', { events: [{ kind: 'assistant_message', ts: '2026-08-26T10:03:00Z', text: 'done?' }], meta: { sessionId: 'n', cwd: '/n', source: 'terminal' } });
+    s.apply('claude', 'idle', { events: [{ kind: 'user_message', ts: '2026-08-26T10:02:00Z', text: 'x' }], meta: { sessionId: 'i', cwd: '/i', source: 'terminal' } });
+    s.apply('claude', 'ended', ev('assistant_message', '2026-08-26T10:04:00Z'));
+    s.setAliveCwds(new Set(['/w', '/b', '/n', '/i']));
+    const order = s.summaries(new Date('2026-08-26T10:05:00Z')).map((x) => x.key);
+    expect(order).toEqual(['claude:blocked', 'claude:needs', 'claude:working', 'claude:idle', 'claude:ended']);
   });
 
   it('leaves now null for idle and ended sessions', () => {
