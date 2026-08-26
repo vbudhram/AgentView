@@ -5,19 +5,38 @@ export interface Persona {
   hue: number;       // accent hue, curated to sit well on the phosphor theme
 }
 
-// Curated lists: professional-cute, never silly-random.
+// Curated lists: professional-cute, never silly-random. Big lists keep the
+// species distinct across a fleet; the epithet resolves the rare collision.
 const ADJECTIVES = [
   'Rusty', 'Amber', 'Cobalt', 'Ivory', 'Onyx', 'Copper',
   'Slate', 'Indigo', 'Jade', 'Ember', 'Misty', 'Nimble',
   'Steady', 'Quiet', 'Swift', 'Bold', 'Lucky', 'Stormy',
   'Frosty', 'Golden', 'Iron', 'Dusty', 'Silent', 'Vivid',
+  'Brave', 'Clever', 'Mellow', 'Rapid', 'Tidal', 'Umber',
+  'Arctic', 'Briny', 'Cedar', 'Dapper', 'Eager', 'Foggy',
+  'Gentle', 'Hardy', 'Keen', 'Lunar',
 ] as const;
 
 const CALLSIGNS = [
   'Falcon', 'Lynx', 'Otter', 'Badger', 'Heron', 'Raven',
   'Kestrel', 'Marten', 'Wren', 'Osprey', 'Bobcat', 'Gecko',
-  'Condor', 'Puffin', 'Merlin', 'Magpie', 'Comet', 'Nova',
-  'Vector', 'Beacon', 'Sparrow', 'Fennec', 'Harrier', 'Drift',
+  'Condor', 'Puffin', 'Merlin', 'Magpie', 'Sparrow', 'Fennec',
+  'Harrier', 'Ibis', 'Jaguar', 'Caracal', 'Lemur', 'Marmot',
+  'Mongoose', 'Narwhal', 'Ocelot', 'Pangolin', 'Quokka', 'Stoat',
+  'Tapir', 'Toucan', 'Cormorant', 'Weasel', 'Wombat', 'Egret',
+  'Gannet', 'Petrel', 'Shrike', 'Kite', 'Goshawk', 'Owl',
+  'Ferret', 'Mink', 'Civet', 'Serval', 'Margay', 'Coyote',
+  'Vixen', 'Ermine', 'Gibbon', 'Macaque', 'Tamarin', 'Beaver',
+  'Pika', 'Chinchilla', 'Capybara', 'Axolotl', 'Tortoise', 'Iguana',
+  'Skink', 'Newt', 'Bunting', 'Siskin', 'Linnet', 'Grouse',
+  'Lapwing', 'Plover', 'Curlew', 'Avocet', 'Bittern', 'Dunlin',
+] as const;
+
+// Version-mark epithets: appended only when two current sessions collide on
+// the same full codename, so "Frosty Lynx VII" and "Frosty Lynx XI" split.
+const EPITHETS = [
+  'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX',
+  'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII',
 ] as const;
 
 // Hues that read well on the dark theme; red/amber stay reserved for alerts.
@@ -39,6 +58,28 @@ export function personaFor(key: string): Persona {
   const noun = CALLSIGNS[Math.floor(h / 251) % CALLSIGNS.length];
   const hue = HUES[Math.floor(h / 65537) % HUES.length];
   return { name: `${adj} ${noun}`, hue };
+}
+
+// Resolve personas for the current session set: any full-name collision gets a
+// deterministic per-key epithet, so every visible codename is unique.
+export function resolvePersonas(keys: string[]): Map<string, Persona> {
+  const out = new Map<string, Persona>();
+  const byName = new Map<string, string[]>();
+  for (const k of keys) {
+    const p = personaFor(k);
+    out.set(k, p);
+    const list = byName.get(p.name);
+    if (list) list.push(k); else byName.set(p.name, [k]);
+  }
+  for (const clash of byName.values()) {
+    if (clash.length < 2) continue;
+    for (const k of clash) {
+      const p = out.get(k)!;
+      const epithet = EPITHETS[Math.floor(fnv1a(k) / 977) % EPITHETS.length];
+      out.set(k, { ...p, name: `${p.name} ${epithet}` });
+    }
+  }
+  return out;
 }
 
 export function accentColor(hue: number): string {
