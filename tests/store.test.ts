@@ -182,6 +182,20 @@ describe('SessionStore', () => {
     expect(s.summaries(later)[0]).toMatchObject({ status: 'idle', now: null });
   });
 
+  it('sets the spinner, no-ops on the same value, and clears with null', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', at('2026-08-26T10:00:00Z', 'x'));
+    const got: string[] = [];
+    s.on('events', ({ key }) => got.push(key));
+    s.setSpinner('claude:f1', 'Undulating… (34s · ↓ 46 tokens)');
+    expect(s.summaries(new Date('2026-08-26T10:00:10Z'))[0].spinner).toBe('Undulating… (34s · ↓ 46 tokens)');
+    s.setSpinner('claude:f1', 'Undulating… (34s · ↓ 46 tokens)'); // unchanged -> no emit
+    s.setSpinner('claude:missing', 'x'); // unknown key -> no-op
+    s.setSpinner('claude:f1', null);
+    expect(s.summaries(new Date('2026-08-26T10:00:10Z'))[0].spinner).toBeNull();
+    expect(got).toEqual(['claude:f1', 'claude:f1']);
+  });
+
   it('emits events and finds sessions by agent+cwd', () => {
     const s = new SessionStore();
     const got: string[] = [];

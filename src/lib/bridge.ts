@@ -5,9 +5,14 @@ import { dirname } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { SessionStore } from './store';
 import type { AgentKind } from './types';
+import { parseSpinner } from './spinner';
 
 export const SCROLLBACK_MAX = 200 * 1024;
 const LINE_BUF_MAX = 2 * 1024 * 1024;
+// The CLI redraws its spinner at least once a second; a text that stops
+// changing for this long is a leftover, not a live spinner.
+export const SPINNER_STALE_MS = 5000;
+const SPINNER_TAIL_MAX = 2048;
 
 export interface Bridge {
   id: string; agent: AgentKind; cwd: string;
@@ -19,6 +24,9 @@ export interface Bridge {
 class BridgeImpl extends EventEmitter implements Bridge {
   private chunks: Buffer[] = [];
   private size = 0;
+  private tail: Buffer = Buffer.alloc(0);
+  spinner: string | null = null;
+  private spinnerAt = 0;
   constructor(public id: string, public agent: AgentKind, public cwd: string, private socket: Socket) { super(); }
 
   pushOutput(data: Buffer): void {
@@ -35,7 +43,26 @@ class BridgeImpl extends EventEmitter implements Bridge {
         this.size -= excess;
       }
     }
+    // A short tail survives chunks that split the spinner line mid-frame.
+    this.tail = Buffer.concat([this.tail, data]);
+    if (this.tail.length > SPINNER_TAIL_MAX) this.tail = this.tail.subarray(this.tail.length - SPINNER_TAIL_MAX);
+    this.setSpinner(parseSpinner(this.tail.toString('utf8')));
     this.emit('data', data);
+  }
+
+  // Only a CHANGE refreshes the clock; an unchanged parse of leftover text
+  // must not keep a dead spinner alive.
+  private setSpinner(text: string | null): void {
+    if (text === this.spinner) return;
+    this.spinner = text;
+    this.spinnerAt = Date.now();
+    this.emit('spinner', text);
+  }
+
+  expireSpinner(staleMs: number): void {
+    if (this.spinner === null || Date.now() - this.spinnerAt <= staleMs) return;
+    this.tail = Buffer.alloc(0); // the leftover line must not re-match later
+    this.setSpinner(null);
   }
   write(data: Buffer): void {
     this.socket.write(JSON.stringify({ t: 'in', d: data.toString('base64') }) + '\n');
@@ -59,11 +86,21 @@ export class BridgeServer extends EventEmitter {
   private pairs = new Map<string, string>(); // sessionKey -> bridgeId
   private sockets = new Set<Socket>();
   private onStoreEvents = () => this.pairAll();
+  private spinnerTimer: ReturnType<typeof setInterval>;
 
-  constructor(private store: SessionStore, private socketPath: string) {
+  constructor(private store: SessionStore, private socketPath: string, spinnerStaleMs = SPINNER_STALE_MS) {
     super();
     this.server = createServer((socket) => this.handle(socket));
     store.on('events', this.onStoreEvents);
+    this.spinnerTimer = setInterval(() => {
+      for (const b of this.bridges.values()) b.expireSpinner(spinnerStaleMs);
+    }, Math.min(1000, spinnerStaleMs));
+    this.spinnerTimer.unref?.();
+  }
+
+  private keyFor(bridgeId: string): string | null {
+    for (const [key, id] of this.pairs) if (id === bridgeId) return key;
+    return null;
   }
 
   private handle(socket: Socket): void {
@@ -83,6 +120,11 @@ export class BridgeServer extends EventEmitter {
         if (msg.t === 'hello' && !bridge && isValidHello(msg)) {
           bridge = new BridgeImpl(`${msg.agent}:${msg.pid}`, msg.agent, msg.cwd, socket);
           this.bridges.set(bridge.id, bridge);
+          const b = bridge;
+          b.on('spinner', (text: string | null) => {
+            const key = this.keyFor(b.id);
+            if (key) this.store.setSpinner(key, text);
+          });
           this.pairAll();
         } else if (msg.t === 'out' && bridge && typeof msg.d === 'string') {
           bridge.pushOutput(Buffer.from(msg.d, 'base64'));
@@ -103,7 +145,11 @@ export class BridgeServer extends EventEmitter {
     if (this.bridges.get(bridge.id) !== bridge) return;
     this.bridges.delete(bridge.id);
     for (const [key, id] of this.pairs) {
-      if (id === bridge.id) { this.pairs.delete(key); this.store.setSteerable(key, false); }
+      if (id === bridge.id) {
+        this.pairs.delete(key);
+        this.store.setSpinner(key, null);
+        this.store.setSteerable(key, false);
+      }
     }
     this.pairAll(); // let a surviving bridge claim the freed key
   }
@@ -118,6 +164,7 @@ export class BridgeServer extends EventEmitter {
       if (cur && this.bridges.has(cur)) continue;
       this.pairs.set(key, bridge.id);
       this.store.setSteerable(key, true);
+      if (bridge.spinner !== null) this.store.setSpinner(key, bridge.spinner);
     }
   }
 
@@ -141,6 +188,7 @@ export class BridgeServer extends EventEmitter {
     return id ? this.bridges.get(id) : undefined;
   }
   close(): Promise<void> {
+    clearInterval(this.spinnerTimer);
     this.store.off('events', this.onStoreEvents);
     for (const socket of this.sockets) socket.destroy();
     return new Promise((resolve) => this.server.close(() => resolve()));

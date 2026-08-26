@@ -221,13 +221,19 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
         )}
       </div>
 
-      {session?.status === 'working' && (
+      {session?.spinner ? (
+        // The CLI's own live spinner line: the strip mirrors the terminal.
+        <div className="strip" style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--green-deep)' }}>
+          <span className="typing" aria-label="working"><i /><i /><i /></span>
+          <span style={{ color: 'var(--green)' }}>{session.spinner}</span>
+        </div>
+      ) : session?.status === 'working' ? (
         <div className="strip" style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--green-deep)' }}>
           <span className="typing" aria-label="working"><i /><i /><i /></span>
           working{session.now ? ' — ' : ''}
           {session.now && <span style={{ color: 'var(--green)' }}>{session.now}</span>}
         </div>
-      )}
+      ) : null}
       {session?.status === 'needs_input' && (
         <div className="strip row-needs_input" style={{ color: 'var(--amber)', fontWeight: 600 }}>
           ⏸ {persona.name} needs you{session.now ? ` — ${session.now}` : ''}
@@ -239,7 +245,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
           )}
         </div>
       )}
-      {session?.status === 'blocked' && (
+      {session?.status === 'blocked' && !session.spinner && (
         <div className="strip" style={{ color: 'var(--cyan)', fontWeight: 600 }}>
           ⏳ {session.now ?? 'running a tool'} — {relDur(session.lastActivity, nowMs)}
           <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>

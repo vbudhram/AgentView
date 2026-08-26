@@ -153,7 +153,16 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
         </div>
       </div>
       <div style={{ paddingLeft: avatarSize + 10, marginTop: 3, minHeight: 15 }}>
-        {s.now ? (
+        {s.spinner ? (
+          // The CLI's own live spinner line beats the computed now-line. No
+          // per-change animation: the text ticks every second.
+          <div style={{
+            fontSize: nowSize, color: 'var(--green-deep)', whiteSpace: 'nowrap',
+            overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {'⚙ '}{s.spinner}
+          </div>
+        ) : s.now ? (
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
               key={s.now}

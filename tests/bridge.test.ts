@@ -141,6 +141,50 @@ describe('BridgeServer', () => {
     await server.close();
   });
 
+  it('surfaces the parsed spinner on the session and clears it on disconnect', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 11 }) + '\n');
+    const out = (s: string) => JSON.stringify({ t: 'out', d: Buffer.from(s).toString('base64') }) + '\n';
+    client.write(out('· Undulating… (34s · ↓ 46 tokens · esc to interrupt)'));
+    await wait(200);
+    expect(store.summaries()[0].spinner).toBe('Undulating… (34s · ↓ 46 tokens)');
+
+    // a redraw with new elapsed replaces the text
+    client.write(out('\r· Undulating… (35s · ↓ 48 tokens · esc to interrupt)'));
+    await wait(200);
+    expect(store.summaries()[0].spinner).toBe('Undulating… (35s · ↓ 48 tokens)');
+
+    client.end();
+    await wait(200);
+    expect(store.summaries()[0].spinner).toBeNull();
+    await server.close();
+  });
+
+  it('stales out a spinner that stops refreshing', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock, 200); // short stale window for the test
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 12 }) + '\n');
+    client.write(JSON.stringify({ t: 'out', d: Buffer.from('· Musing… (4s · esc to interrupt)').toString('base64') }) + '\n');
+    await wait(150);
+    expect(store.summaries()[0].spinner).toBe('Musing… (4s)');
+    await wait(600); // no refresh -> the interval clears it
+    expect(store.summaries()[0].spinner).toBeNull();
+
+    client.end();
+    await server.close();
+  });
+
   it('destroys a socket that floods the line buffer without a newline', async () => {
     const store = makeStore();
     const sock = makeSock();
