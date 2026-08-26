@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentEvent } from '@/lib/ui-types';
-import { describeToolCall, prettyToolInput, shortToolName } from '@/lib/describe';
+import { describeToolCall, prettyToolInput, shortToolName, stripAnsi } from '@/lib/describe';
 
 // GFM (tables, autolinked URLs, strikethrough) plus theme-fitting renderers:
 // links open in a new tab; wide tables scroll inside their own container.
@@ -53,9 +53,9 @@ function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_r
   const color = isCall ? 'var(--cyan)' : e.isError ? 'var(--red)' : 'var(--green-deep)';
   const { label, detail } = isCall
     ? toolCallSummary(e.name, e.input)
-    : toolResultSummary(e.output, e.isError ?? false);
-  // calls expand to key: value lines instead of raw JSON
-  const body = isCall ? prettyToolInput(e.input) : e.output;
+    : toolResultSummary(stripAnsi(e.output), e.isError ?? false);
+  // calls expand to key: value lines instead of raw JSON; results lose ANSI noise
+  const body = isCall ? prettyToolInput(e.input) : stripAnsi(e.output);
   return (
     <div style={{ margin: '2px 0' }}>
       <button className="tool-toggle" onClick={() => setOpen(!open)} style={{ color }}>

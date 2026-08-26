@@ -18,9 +18,18 @@ function stripCdPrefix(cmd: string): string {
   return cmd.replace(/^cd\s+(?:'[^']*'|"[^"]*"|\S+)\s*&&\s*/, '');
 }
 
+// Terminal escape sequences (colors, cursor moves, OSC titles) are noise in a
+// browser. One shared strip keeps every display path consistent.
+export function stripAnsi(s: string): string {
+  return s
+    .replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, '')
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g, '')
+    .replace(/\u001b[@-Z\\^_]/g, '');
+}
+
 // One-line plain text for feed rows: XML-ish tags and inline markdown out.
 export function plainText(s: string): string {
-  return s
+  return stripAnsi(s)
     .replace(/<\/?[a-zA-Z][^>\n]{0,80}>/g, ' ')
     .replace(/\*\*|__/g, '')
     .replace(/`([^`\n]*)`/g, '$1')
