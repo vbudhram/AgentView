@@ -42,8 +42,8 @@ export function AgentAvatar({ status, hue, size = 28 }: {
           {/* focused visor eyes with scanning pupils */}
           <rect x="9" y="13.6" width="6" height="4.6" rx="2" fill="rgba(0,0,0,0.5)" stroke={dim} strokeWidth="0.7" />
           <rect x="17" y="13.6" width="6" height="4.6" rx="2" fill="rgba(0,0,0,0.5)" stroke={dim} strokeWidth="0.7" />
-          <rect className="av-pupil" x="11.2" y="14.7" width="1.7" height="2.4" rx="0.8" fill="var(--green)" />
-          <rect className="av-pupil" x="19.2" y="14.7" width="1.7" height="2.4" rx="0.8" fill="var(--green)" />
+          <rect x="11.2" y="14.7" width="1.7" height="2.4" rx="0.8" fill="var(--green)" />
+          <rect x="19.2" y="14.7" width="1.7" height="2.4" rx="0.8" fill="var(--green)" />
           <line x1="13" y1="22" x2="19" y2="22" stroke="var(--text-dim)" strokeWidth="1.3" strokeLinecap="round" />
         </g>
       )}

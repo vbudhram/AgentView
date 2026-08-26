@@ -7,8 +7,8 @@
   --border: #1c231e;
   --border-strong: #2a332c;
   --text: #d9e2da;
-  --text-dim: #8b978d;
-  --text-faint: #556057;
+  --text-dim: #96a398;
+  --text-faint: #7e8b80; /* >= 4.5:1 on --bg; metadata is radar data, not decoration */
   --green: #4ade80;
   --green-deep: #22c55e;
   --green-dim: #1c5c33;
@@ -43,18 +43,30 @@ html, body {
 .nav-scroll::-webkit-scrollbar-thumb:hover { background: var(--green-dim); }
 .nav-scroll { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 
-/* faint CRT scanlines over the nav */
-.scanlines::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0px, transparent 2px,
-    rgba(0, 0, 0, 0.14) 2px, rgba(0, 0, 0, 0.14) 3px
-  );
-  mix-blend-mode: multiply;
+/* ---- app shell -------------------------------------------------- */
+
+.app-shell { display: flex; background: var(--bg); }
+.session-nav {
+  position: relative;
+  width: 320px;
+  height: 100vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+  background: var(--bg-nav);
+  border-right: 1px solid var(--border);
+}
+.app-main { flex: 1; height: 100vh; overflow: hidden; min-width: 0; }
+
+/* narrow window: stack the list above the detail pane */
+@media (max-width: 700px) {
+  .app-shell { flex-direction: column; height: 100vh; }
+  .session-nav {
+    width: 100%;
+    height: 42vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border-strong);
+  }
+  .app-main { height: auto; flex: 1; min-height: 0; }
 }
 
 /* ---- status animations ---------------------------------------- */
@@ -91,24 +103,32 @@ html, body {
 .dot-idle        { background: var(--idle); }
 .dot-ended       { background: transparent; border: 1px solid var(--ended); }
 
-.row-needs_input { animation: glow-row 2.4s ease-in-out infinite; }
-.row-blocked     { animation: glow-row-red 0.9s ease-in-out infinite; }
-
-/* attention words shimmer slightly */
-@keyframes word-glow {
-  0%, 100% { opacity: 0.75; text-shadow: 0 0 2px rgba(245, 158, 11, 0); }
-  50%      { opacity: 1; text-shadow: 0 0 8px rgba(245, 158, 11, 0.7); }
+/* attention rows: pulse a few times on entry, then settle to a steady tint */
+.row-needs_input {
+  background-color: rgba(245, 158, 11, 0.08);
+  animation: glow-row 1.2s ease-in-out 3;
 }
-@keyframes word-glow-red {
-  0%, 100% { opacity: 0.8; text-shadow: 0 0 2px rgba(239, 68, 68, 0); }
-  50%      { opacity: 1; text-shadow: 0 0 9px rgba(239, 68, 68, 0.8); }
+.row-blocked {
+  background-color: rgba(239, 68, 68, 0.08);
+  animation: glow-row-red 0.9s ease-in-out 4;
 }
-.word-needs { animation: word-glow 2.4s ease-in-out infinite; }
-.word-blocked { animation: word-glow-red 0.9s ease-in-out infinite; }
 
-/* blinking cursor block in the wordmark */
-@keyframes cursor-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0.12; } }
-.cursor-blink { animation: cursor-blink 1.1s steps(1) infinite; }
+/* filled status chips: the loudest element on an attention row */
+.chip-needs, .chip-blocked {
+  font-family: var(--font-display);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  line-height: 15px;
+  padding: 0 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.chip-needs { background: var(--amber); color: #1c1403; }
+.chip-blocked { background: var(--red); color: #1e0808; }
+
+/* steady cursor block in the wordmark */
+.cursor-blink { opacity: 0.9; }
 
 /* typing ellipsis (working ticker fallback) */
 @keyframes blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
@@ -121,28 +141,20 @@ html, body {
 
 /* ---- agent avatar expressions ---------------------------------- */
 
-/* working: pupils sweep side to side inside the visor */
-@keyframes av-scan {
-  0%, 100% { transform: translateX(-1.1px); }
-  50%      { transform: translateX(1.1px); }
-}
-.av-pupil { animation: av-scan 1.5s ease-in-out infinite; }
-/* working antenna tip: soft phosphor pulse */
+/* working antenna tip: soft phosphor pulse — the one steady "alive" signal */
 @keyframes av-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .av-tip-working { animation: av-glow 1.2s ease-in-out infinite; }
-/* blocked: alarmed flicker */
+/* blocked: alarmed flicker on entry, then steady */
 @keyframes av-alarm-fx { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
-.av-alarm { animation: av-alarm-fx 0.9s ease-in-out infinite; }
-/* needs_input: the question glint breathes */
-@keyframes av-glint-fx { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
-.av-glint { animation: av-glint-fx 2.4s ease-in-out infinite; }
+.av-alarm { animation: av-alarm-fx 0.9s ease-in-out 4; }
+/* needs_input question glint: steady, no loop */
+.av-glint { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   .dot-working, .dot-needs_input, .dot-blocked,
   .row-needs_input, .row-blocked,
-  .word-needs, .word-blocked,
-  .cursor-blink, .typing i,
-  .av-pupil, .av-tip-working, .av-alarm, .av-glint { animation: none; }
+  .typing i,
+  .av-tip-working, .av-alarm { animation: none; }
 }
 
 /* ---- nav widgets ----------------------------------------------- */
@@ -165,7 +177,11 @@ html, body {
 .filter-select:focus { outline: 1px solid var(--green-dim); outline-offset: 1px; }
 
 .nav-row { transition: background-color 0.15s ease, border-color 0.15s ease; }
-.nav-row:hover { background-color: rgba(217, 226, 218, 0.04); }
+.nav-row:hover { background-color: rgba(217, 226, 218, 0.05); }
+.nav-row:focus-visible {
+  outline: 1px solid var(--green);
+  outline-offset: -1px;
+}
 
 /* ---- session pane ---------------------------------------------- */
 
@@ -183,8 +199,12 @@ html, body {
   padding: 11px 2px 9px;
   transition: color 0.15s ease;
 }
-.tab-btn:hover { color: var(--text-dim); }
-.tab-btn.active { color: var(--text); }
+.tab-btn:hover { color: var(--text); }
+/* the active tab is the brightest element in the bar, underline included */
+.tab-btn.active {
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--green);
+}
 
 .desktop-open-btn {
   margin-left: 8px;

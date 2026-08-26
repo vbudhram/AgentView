@@ -1,12 +1,20 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'motion/react';
 import type { AgentEvent, SessionSummary } from '@/lib/ui-types';
 import { ConversationView } from './ConversationView';
 import { ActivityFeed } from './ActivityFeed';
 import { TerminalView } from './TerminalView';
-import { personaFor, accentColor } from '@/lib/persona';
+import { personaFor, accentSoft } from '@/lib/persona';
 import { AgentAvatar } from './AgentAvatar';
+
+// There is no reply channel for non-steerable sessions; the honest fallback
+// is telling the user where the real prompt lives.
+function respondHint(session: SessionSummary | undefined): string {
+  if (!session) return '';
+  if (session.steerable) return 'reply in the Terminal tab';
+  if (session.source === 'desktop') return 'respond in Claude Desktop';
+  return 'respond in the terminal running this session';
+}
 
 const TABS = ['conversation', 'activity', 'terminal'] as const;
 type Tab = (typeof TABS)[number];
@@ -75,7 +83,7 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
   }, [session, snapshot, events.length, sessionKey]);
 
   const persona = personaFor(sessionKey);
-  const accent = accentColor(persona.hue);
+  const soft = accentSoft(persona.hue);
   const project = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : null;
 
   return (
@@ -88,17 +96,20 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
         <div style={{ minWidth: 0 }}>
           <div style={{
             fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700,
-            letterSpacing: '0.04em', color: accent, whiteSpace: 'nowrap',
-            overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>
-            {persona.name}
-          </div>
-          <div style={{
-            fontSize: 10.5, color: 'var(--text-dim)', whiteSpace: 'nowrap',
+            letterSpacing: '0.04em', color: 'var(--text)', whiteSpace: 'nowrap',
             overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {project ?? sessionKey}
-            {session?.gitBranch ? <span style={{ color: 'var(--text-faint)' }}> · {session.gitBranch}</span> : null}
+            {session?.gitBranch ? (
+              <span style={{ color: 'var(--text-dim)', fontWeight: 500, fontSize: 12 }}> · {session.gitBranch}</span>
+            ) : null}
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600,
+            letterSpacing: '0.04em', color: soft, whiteSpace: 'nowrap',
+            overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {persona.name}
           </div>
         </div>
         <span title={session?.cwd ?? undefined} style={{
@@ -114,14 +125,13 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
         borderBottom: '1px solid var(--border)', flexShrink: 0,
       }}>
         {tabs.map((t) => (
-          <button key={t} className={`tab-btn ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
+          <button
+            key={t}
+            className={`tab-btn ${tab === t ? 'active' : ''}`}
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+          >
             {t}
-            {tab === t && (
-              <motion.div
-                layoutId="pane-tab"
-                style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 2, background: 'var(--green)' }}
-              />
-            )}
           </button>
         ))}
         {session?.source === 'desktop' && (
@@ -148,11 +158,17 @@ export function SessionPane({ sessionKey, session, liveEvents }: {
       {session?.status === 'needs_input' && (
         <div className="strip row-needs_input" style={{ color: 'var(--amber)', fontWeight: 600 }}>
           ⏸ waiting for your input{session.now ? ` — ${session.now}` : ''}
+          <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
+            · {respondHint(session)}
+          </span>
         </div>
       )}
       {session?.status === 'blocked' && (
         <div className="strip row-blocked" style={{ color: 'var(--red)', fontWeight: 600 }}>
           ⚠ likely waiting on a permission prompt{session.now ? ` — ${session.now}` : ''}
+          <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
+            · {respondHint(session)}
+          </span>
         </div>
       )}
 
