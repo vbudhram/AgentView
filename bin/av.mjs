@@ -4,6 +4,9 @@ import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+// Keep in sync with BRIDGE_PROTOCOL_VERSION in src/lib/bridge.ts.
+const PROTOCOL_VERSION = 2;
+
 const [agent, ...args] = process.argv.slice(2);
 if (!agent || !['claude', 'codex'].includes(agent)) {
   console.error('usage: av <claude|codex> [args...]');
@@ -59,6 +62,7 @@ function connect() {
     s.write(JSON.stringify({
       t: 'hello', agent, cwd: process.cwd(), pid: process.pid,
       cols: pty.cols, rows: pty.rows,
+      v: PROTOCOL_VERSION,
     }) + '\n');
   });
   let buf = '';

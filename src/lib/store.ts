@@ -10,7 +10,7 @@ export type SessionStatus = 'working' | 'needs_input' | 'blocked' | 'idle' | 'en
 export interface SessionSummary {
   key: string; agent: AgentKind; sessionId: string | null; cwd: string | null;
   source: SourceKind | null; title: string | null; lastActivity: string;
-  status: SessionStatus; steerable: boolean; eventCount: number;
+  status: SessionStatus; steerable: boolean; wrapperOutdated: boolean; eventCount: number;
   lastTool: string | null;  // name of the most recent tool_call, for the working ticker
   gitBranch: string | null;
   now: string | null;  // status-aware one-liner: what the agent does or waits on
@@ -20,7 +20,7 @@ export interface SessionSummary {
 interface SessionRec {
   agent: AgentKind; sessionId: string | null; cwd: string | null;
   source: SourceKind | null; title: string | null; lastActivity: string;
-  steerable: boolean; events: AgentEvent[]; gitBranch: string | null;
+  steerable: boolean; wrapperOutdated: boolean; events: AgentEvent[]; gitBranch: string | null;
   spinner: string | null;
 }
 
@@ -52,7 +52,7 @@ export class SessionStore extends EventEmitter {
     const key = `${agent}:${fileId}`;
     let rec = this.sessions.get(key);
     if (!rec) {
-      rec = { agent, sessionId: null, cwd: null, source: null, title: null, lastActivity: new Date(0).toISOString(), steerable: false, events: [], gitBranch: null, spinner: null };
+      rec = { agent, sessionId: null, cwd: null, source: null, title: null, lastActivity: new Date(0).toISOString(), steerable: false, wrapperOutdated: false, events: [], gitBranch: null, spinner: null };
       this.sessions.set(key, rec);
     }
     if (parsed.meta) {
@@ -73,6 +73,14 @@ export class SessionStore extends EventEmitter {
   }
 
   setAliveCwds(cwds: Set<string>): void { this.aliveCwds = cwds; }
+
+  setWrapperOutdated(key: string, on: boolean): void {
+    const rec = this.sessions.get(key);
+    if (rec && rec.wrapperOutdated !== on) {
+      rec.wrapperOutdated = on;
+      this.emit('events', { key, events: [] });
+    }
+  }
 
   setSteerable(key: string, on: boolean): void {
     const rec = this.sessions.get(key);
@@ -136,7 +144,7 @@ export class SessionStore extends EventEmitter {
         // truth ("running X"), never a hard approval claim.
         nowLine = `running ${describeToolCall(last.name, last.input)}`;
       }
-      out.push({ key, agent: rec.agent, sessionId: rec.sessionId, cwd: rec.cwd, source: rec.source, title: rec.title, lastActivity: rec.lastActivity, status, steerable: rec.steerable, eventCount: rec.events.length, lastTool: lastTool?.kind === 'tool_call' ? lastTool.name : null, gitBranch: rec.gitBranch, now: nowLine, spinner: rec.spinner });
+      out.push({ key, agent: rec.agent, sessionId: rec.sessionId, cwd: rec.cwd, source: rec.source, title: rec.title, lastActivity: rec.lastActivity, status, steerable: rec.steerable, wrapperOutdated: rec.wrapperOutdated, eventCount: rec.events.length, lastTool: lastTool?.kind === 'tool_call' ? lastTool.name : null, gitBranch: rec.gitBranch, now: nowLine, spinner: rec.spinner });
     }
     // Triage order: needs_input is the only confirmed "needs you" and pins the
     // top. A pending tool call (blocked) is working state, not an alarm, so it

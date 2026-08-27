@@ -262,6 +262,12 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
           {session.now && <span style={{ color: 'var(--green)' }}>{session.now}</span>}
         </div>
       ) : null}
+      {session?.steerable && session.wrapperOutdated && (
+        <div className="strip" style={{ color: 'var(--amber)', fontSize: 11.5 }}>
+          ⌁! wrapper outdated — the mirror may render incorrectly. Restart this
+          session (<code>claude --continue</code>) to upgrade.
+        </div>
+      )}
       {session?.status === 'needs_input' && (
         <div className="strip row-needs_input" style={{ color: 'var(--amber)', fontWeight: 600 }}>
           ⏸ {persona.name} needs you{session.now ? ` — ${session.now}` : ''}

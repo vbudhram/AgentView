@@ -28,7 +28,7 @@ export function GET() {
       // Status flips from time or the proc poller emit no store events,
       // so poll the summaries each tick and send only real changes.
       const fingerprint = (sessions: ReturnType<typeof store.summaries>) =>
-        JSON.stringify(sessions.map((s) => [s.key, s.status, s.steerable, s.eventCount, s.lastActivity, s.spinner]));
+        JSON.stringify(sessions.map((s) => [s.key, s.status, s.steerable, s.wrapperOutdated, s.eventCount, s.lastActivity, s.spinner]));
       let lastFp = '';
       const sendSessions = () => {
         const sessions = store.summaries();

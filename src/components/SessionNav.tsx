@@ -145,7 +145,12 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
           </span>
           {showAgent && <AgentBadge agent={s.agent} />}
           {s.steerable && (
-            <span title="steerable" style={{ fontSize: 10, color: 'var(--cyan)', flexShrink: 0 }}>⌁</span>
+            <span
+              title={s.wrapperOutdated ? 'wrapper outdated — restart this session to upgrade the mirror' : 'steerable'}
+              style={{ fontSize: 10, color: s.wrapperOutdated ? 'var(--amber)' : 'var(--cyan)', flexShrink: 0 }}
+            >
+              ⌁{s.wrapperOutdated ? '!' : ''}
+            </span>
           )}
           <span style={{ color: 'var(--text-faint)', fontSize: 10, marginLeft: 'auto', flexShrink: 0 }}>
             {s.source === 'desktop' ? 'desktop' : s.source === 'codex' ? 'cli' : 'terminal'}

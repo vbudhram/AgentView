@@ -36,6 +36,7 @@ class BridgeImpl extends EventEmitter implements Bridge {
   private screen: SpinnerScreen;
   spinner: string | null = null;
   private spinnerAt = 0;
+  public outdated = false;
   constructor(
     public id: string, public agent: AgentKind, public cwd: string,
     private socket: Socket, public cols = 80, public rows = 24,
@@ -112,6 +113,9 @@ class BridgeImpl extends EventEmitter implements Bridge {
   scrollback(): Buffer { return Buffer.concat(this.chunks); }
 }
 
+// Keep in sync with PROTOCOL_VERSION in bin/av.mjs.
+export const BRIDGE_PROTOCOL_VERSION = 2;
+
 function isValidHello(msg: any): boolean {
   return (msg.agent === 'claude' || msg.agent === 'codex')
     && typeof msg.pid === 'number'
@@ -165,6 +169,9 @@ export class BridgeServer extends EventEmitter {
             `${msg.agent}:${msg.pid}`, msg.agent, msg.cwd, socket,
             sized ? msg.cols : 80, sized ? msg.rows : 24,
           );
+          // A wrapper behind the current protocol (or with no size) renders
+          // an unfaithful mirror; surface that so the UI can say "restart".
+          bridge.outdated = msg.v !== BRIDGE_PROTOCOL_VERSION || !sized;
           this.bridges.set(bridge.id, bridge);
           const b = bridge;
           b.on('spinner', (text: string | null) => {
@@ -197,6 +204,7 @@ export class BridgeServer extends EventEmitter {
         this.pairs.delete(key);
         this.store.setSpinner(key, null);
         this.store.setSteerable(key, false);
+        this.store.setWrapperOutdated(key, false);
       }
     }
     this.pairAll(); // let a surviving bridge claim the freed key
@@ -212,6 +220,7 @@ export class BridgeServer extends EventEmitter {
       if (cur && this.bridges.has(cur)) continue;
       this.pairs.set(key, bridge.id);
       this.store.setSteerable(key, true);
+      this.store.setWrapperOutdated(key, bridge.outdated);
       if (bridge.spinner !== null) this.store.setSpinner(key, bridge.spinner);
       // the spinner moved to the current key; older keys of this bridge lose it
       for (const [k, id] of this.pairs) {

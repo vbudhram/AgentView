@@ -200,6 +200,32 @@ describe('BridgeServer', () => {
     await server.close();
   });
 
+  it('flags a wrapper behind the protocol version as outdated, current as not', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+    // old wrapper: no v, no size
+    const c1 = createConnection(sock);
+    await new Promise((r) => c1.on('connect', r));
+    c1.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 1 }) + '\n');
+    await wait(150);
+    expect(store.summaries()[0].wrapperOutdated).toBe(true);
+    c1.end();
+    await wait(150);
+    expect(store.summaries()[0].wrapperOutdated).toBe(false);
+    // current wrapper: v matches and size present
+    const c2 = createConnection(sock);
+    await new Promise((r) => c2.on('connect', r));
+    c2.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 2, cols: 120, rows: 40, v: 2 }) + '\n');
+    await wait(150);
+    const s = store.summaries()[0];
+    expect(s.steerable).toBe(true);
+    expect(s.wrapperOutdated).toBe(false);
+    c2.end();
+    await server.close();
+  });
+
   it('stores the PTY size from hello and falls back on bad values', async () => {
     const store = makeStore();
     const sock = makeSock();
