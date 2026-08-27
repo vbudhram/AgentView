@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MotionConfig } from 'motion/react';
 import type { AgentEvent, SessionSummary, SourceKind } from '@/lib/ui-types';
 import { personaFor, resolvePersonas } from '@/lib/persona';
+import { useIsMobile, useVisualViewportVar } from '@/lib/mobile';
 import { SessionNav } from './SessionNav';
 import { SessionPane } from './SessionPane';
 
@@ -32,6 +33,36 @@ export function Dashboard() {
   });
   const [dragging, setDragging] = useState(false);
   const [liveEvents, setLiveEvents] = useState<Record<string, AgentEvent[]>>({});
+
+  // Phone model: full-screen list ⇄ full-screen detail, like a chat app.
+  const isMobile = useIsMobile();
+  const showDetail = isMobile && selectedKey !== null;
+  useVisualViewportVar(showDetail);
+
+  // On mobile a selection is a navigation push, so the browser back button
+  // (and the ‹ chevron, which calls history.back) returns to the list.
+  const inDetailHistory = useRef(false);
+  const select = useCallback((key: string) => {
+    setSelectedKey(key);
+    if (window.matchMedia('(max-width: 700px)').matches && !inDetailHistory.current) {
+      history.pushState({ avDetail: true }, '');
+      inDetailHistory.current = true;
+    }
+  }, []);
+  const goBack = useCallback(() => {
+    if (inDetailHistory.current) history.back();
+    else setSelectedKey(null);
+  }, []);
+  useEffect(() => {
+    const onPop = (e: PopStateEvent) => {
+      if (!e.state?.avDetail) {
+        inDetailHistory.current = false;
+        setSelectedKey(null);
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   // initial snapshot, then live frames over SSE
   useEffect(() => {
@@ -123,12 +154,15 @@ export function Dashboard() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <div className="app-shell" style={{ ['--nav-w' as string]: `${navW}px` }}>
+    <div
+      className={`app-shell${showDetail ? ' show-detail' : ''}`}
+      style={{ ['--nav-w' as string]: `${navW}px` }}
+    >
       <SessionNav
         sessions={sessions}
         personas={personas}
         selectedKey={selectedKey}
-        onSelect={setSelectedKey}
+        onSelect={select}
         filter={filter}
         onFilter={setFilter}
       />
@@ -160,8 +194,10 @@ export function Dashboard() {
             persona={personas.get(selectedKey) ?? personaFor(selectedKey)}
             session={sessions.find((s) => s.key === selectedKey)}
             liveEvents={liveEvents[selectedKey] ?? []}
+            isMobile={isMobile}
+            onBack={isMobile ? goBack : undefined}
           />
-        ) : (
+        ) : !isMobile ? (
           <div style={{
             height: '100%', display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center', gap: 10,
@@ -176,7 +212,7 @@ export function Dashboard() {
               select a session · ↑↓ or j/k to cycle
             </div>
           </div>
-        )}
+        ) : null}
       </main>
     </div>
     </MotionConfig>

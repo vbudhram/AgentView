@@ -73,7 +73,10 @@ export function ActivityFeed({ events }: { events: AgentEvent[] }) {
         // stick to the bottom only while the user is near it
         if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       }}
-      style={{ height: '100%', overflowY: 'auto', padding: '12px 18px 20px', fontSize: 11.5 }}
+      style={{
+        height: '100%', overflowY: 'auto', overscrollBehavior: 'contain',
+        padding: '12px 18px calc(20px + env(safe-area-inset-bottom))', fontSize: 'var(--fs-feed, 11.5px)',
+      }}
     >
       {events.length === 0 && (
         <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-faint)' }}>

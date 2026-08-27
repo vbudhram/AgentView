@@ -6,6 +6,7 @@ import { ActivityFeed } from './ActivityFeed';
 import { TerminalView } from './TerminalView';
 import { TerminalPreview } from './TerminalPreview';
 import { accentSoft, type Persona } from '@/lib/persona';
+import { usePressActivate } from '@/lib/mobile';
 import { AgentAvatar } from './AgentAvatar';
 
 // Client-side transcript cache: revisiting a session renders instantly
@@ -71,14 +72,38 @@ function CopyCdButton({ cwd }: { cwd: string }) {
 }
 
 
+// Back fires on touch-down (instant, and immune to taps whose synthetic
+// click never lands); the guard keeps the follow-up click from firing twice.
+function BackButton({ onBack }: { onBack: () => void }) {
+  const handled = useRef(0);
+  const go = () => {
+    if (Date.now() - handled.current < 600) return;
+    handled.current = Date.now();
+    onBack();
+  };
+  return (
+    <button
+      className="back-btn"
+      aria-label="back to the session list"
+      onPointerDown={go}
+      onClick={go}
+    >
+      <span className="chev">‹</span>
+      <span>list</span>
+    </button>
+  );
+}
+
 const TABS = ['conversation', 'activity', 'terminal'] as const;
 type Tab = (typeof TABS)[number];
 
-export function SessionPane({ sessionKey, persona, session, liveEvents }: {
+export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile = false, onBack }: {
   sessionKey: string;
   persona: Persona;
   session: SessionSummary | undefined;
   liveEvents: AgentEvent[];
+  isMobile?: boolean;
+  onBack?: () => void;
 }) {
   // Seed from the cache so cycling with j/k never blanks the pane.
   const [snapshot, setSnapshot] = useState<AgentEvent[] | null>(
@@ -177,6 +202,10 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
 
   const soft = accentSoft(persona.hue);
   const project = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : null;
+  // Tap-to-reveal session info: on touch there is no hover/title, so the
+  // cwd in the top bar toggles a strip with the full path and glyph meanings.
+  const [infoOpen, setInfoOpen] = useState(false);
+  const infoTap = usePressActivate(() => setInfoOpen((o) => !o));
 
   // 10s tick keeps the pending-tool elapsed time honest between frames.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -189,10 +218,10 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{
-        display: 'flex', gap: 10, alignItems: 'center', padding: '10px 18px 8px',
-        borderBottom: '1px solid var(--border)', flexShrink: 0,
-      }}>
+      <div className="pane-header">
+        {onBack && (
+          <BackButton onBack={onBack} />
+        )}
         <AgentAvatar status={session?.status ?? 'idle'} hue={persona.hue} size={34} />
         <div style={{ minWidth: 0 }}>
           <div style={{
@@ -213,14 +242,30 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
             {persona.name}
           </div>
         </div>
-        <span title={session?.cwd ?? undefined} style={{
-          marginLeft: 'auto', fontSize: 10.5, color: 'var(--text-faint)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', direction: 'rtl',
-          maxWidth: '40%',
-        }}>
-          {session?.cwd ?? ''}
-        </span>
+        <button
+          className="session-info-btn"
+          title={session?.cwd ?? undefined}
+          aria-expanded={infoOpen}
+          aria-label="session details"
+          {...infoTap}
+        >
+          {session?.cwd ? `${session.cwd} ${infoOpen ? '▴' : '▾'}` : infoOpen ? '▴' : '▾'}
+        </button>
       </div>
+      {infoOpen && (
+        <div className="session-info-strip">
+          <div style={{ color: 'var(--text)' }}>{session?.cwd ?? '(no working directory)'}</div>
+          {session?.gitBranch && <div>branch: {session.gitBranch}</div>}
+          <div>
+            source: {session?.source ?? 'unknown'}
+            {session?.steerable
+              ? session.wrapperOutdated
+                ? ' · ⌁! steerable, wrapper outdated — restart with `claude --continue` to fix the mirror'
+                : ' · ⌁ steerable — the Terminal tab is a live two-way mirror'
+              : ' · not steerable from here'}
+          </div>
+        </div>
+      )}
       <div style={{
         display: 'flex', gap: 18, alignItems: 'center', padding: '0 18px',
         borderBottom: '1px solid var(--border)', flexShrink: 0,
@@ -230,6 +275,10 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
             key={t}
             className={`tab-btn ${tab === t ? 'active' : ''}`}
             aria-selected={tab === t}
+            // pointerdown: instant switch on touch-down (segmented-control
+            // feel) and immune to taps whose click never lands; setTab is
+            // idempotent, so the follow-up click is harmless
+            onPointerDown={() => setTab(t)}
             onClick={() => setTab(t)}
           >
             {t}
@@ -288,7 +337,8 @@ export function SessionPane({ sessionKey, persona, session, liveEvents }: {
         </div>
       )}
 
-      {previewMounted && tab !== 'terminal' && (
+      {/* one WS per session on phones: the Terminal tab IS the mirror there */}
+      {!isMobile && previewMounted && tab !== 'terminal' && (
         <TerminalPreview
           key={sessionKey}
           sessionKey={sessionKey}

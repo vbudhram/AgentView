@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { SessionSummary, SourceKind } from '@/lib/ui-types';
 import { personaFor, accentSoft, type Persona } from '@/lib/persona';
+import { useIsMobile, usePressActivate } from '@/lib/mobile';
 import { AgentAvatar } from './AgentAvatar';
 
 // Minutes granularity below 2h keeps neighboring rows distinguishable.
@@ -36,7 +37,7 @@ function AgentBadge({ agent }: { agent: SessionSummary['agent'] }) {
   return (
     <span
       style={{
-        fontSize: 9, fontWeight: 600, letterSpacing: '0.06em', lineHeight: '14px',
+        fontSize: 'var(--fs-badge)', fontWeight: 600, letterSpacing: '0.06em', lineHeight: '15px',
         padding: '0 4px', borderRadius: 3, flexShrink: 0,
         color: claude ? 'var(--green)' : 'var(--cyan)',
         border: `1px solid ${claude ? 'var(--green-dim)' : 'rgba(103,232,249,0.35)'}`,
@@ -48,9 +49,9 @@ function AgentBadge({ agent }: { agent: SessionSummary['agent'] }) {
   );
 }
 
-function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
+function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile }: {
   s: SessionSummary; persona: Persona; selected: boolean; onSelect: (k: string) => void;
-  now: number; dups: Set<string>; showAgent: boolean;
+  now: number; dups: Set<string>; showAgent: boolean; mobile: boolean;
 }) {
   const soft = accentSoft(persona.hue);
   const project = projectLabel(s.cwd, dups);
@@ -65,9 +66,10 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
     s.status === 'working' ? 'var(--green-deep)' :
     s.status === 'needs_input' ? 'var(--amber)' :
     s.status === 'blocked' ? 'var(--cyan)' : 'var(--text-dim)';
-  const avatarSize = attention ? 36 : 28;
-  const nameSize = attention ? 14.5 : ended ? 11.5 : 12.5;
-  const nowSize = attention ? 12 : 10.5;
+  // arm's-length sizes on phones: nothing under 11px, names ≥14px
+  const avatarSize = attention ? (mobile ? 40 : 36) : (mobile ? 32 : 28);
+  const nameSize = mobile ? (attention ? 16 : ended ? 13 : 14) : (attention ? 14.5 : ended ? 11.5 : 12.5);
+  const nowSize = mobile ? (attention ? 13 : 12) : (attention ? 12 : 10.5);
   const statusLabel =
     s.status === 'blocked' ? 'running a tool' : s.status.replace('_', ' ');
   const ref = useRef<HTMLDivElement>(null);
@@ -82,7 +84,8 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
   return (
     <motion.div
       ref={ref}
-      layout="position"
+      // touch: a spring-reordering row moves between aim and tap; skip it
+      layout={mobile ? false : 'position'}
       transition={{ layout: { type: 'spring', stiffness: 500, damping: 40 } }}
       role="button"
       tabIndex={0}
@@ -120,7 +123,7 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
           </b>
           {s.gitBranch && (
             <span style={{
-              fontSize: 10.5, color: 'var(--text-dim)', overflow: 'hidden',
+              fontSize: 'var(--fs-meta)', color: 'var(--text-dim)', overflow: 'hidden',
               textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0,
             }}>
               {s.gitBranch}
@@ -128,13 +131,13 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
           )}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
             {s.status === 'needs_input' && <span className="chip-needs chip-lg">NEEDS YOU</span>}
-            <span style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>{rel(s.lastActivity, now)}</span>
+            <span style={{ fontSize: 'var(--fs-meta)', color: 'var(--text-faint)' }}>{rel(s.lastActivity, now)}</span>
           </span>
         </div>
         {/* secondary line: WHO (codename, flavor color) + agent/source chips */}
         <div style={{
           display: 'flex', gap: 6, alignItems: 'center', minWidth: 0,
-          fontSize: attention ? 11.5 : 10.5, color: 'var(--text-dim)',
+          fontSize: attention ? (mobile ? 13 : 11.5) : 'var(--fs-meta)', color: 'var(--text-dim)',
         }}>
           <span style={{
             fontFamily: 'var(--font-display)', fontWeight: 600, letterSpacing: '0.03em',
@@ -147,12 +150,12 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
           {s.steerable && (
             <span
               title={s.wrapperOutdated ? 'wrapper outdated — restart this session to upgrade the mirror' : 'steerable'}
-              style={{ fontSize: 10, color: s.wrapperOutdated ? 'var(--amber)' : 'var(--cyan)', flexShrink: 0 }}
+              style={{ fontSize: 'var(--fs-tiny)', color: s.wrapperOutdated ? 'var(--amber)' : 'var(--cyan)', flexShrink: 0 }}
             >
               ⌁{s.wrapperOutdated ? '!' : ''}
             </span>
           )}
-          <span style={{ color: 'var(--text-faint)', fontSize: 10, marginLeft: 'auto', flexShrink: 0 }}>
+          <span style={{ color: 'var(--text-faint)', fontSize: 'var(--fs-tiny)', marginLeft: 'auto', flexShrink: 0 }}>
             {s.source === 'desktop' ? 'desktop' : s.source === 'codex' ? 'cli' : 'terminal'}
           </span>
         </div>
@@ -192,7 +195,7 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent }: {
           <span className="typing" aria-label="working"><i /><i /><i /></span>
         ) : (
           <div style={{
-            fontSize: 10.5, color: 'var(--text-dim)', overflow: 'hidden',
+            fontSize: 'var(--fs-meta)', color: 'var(--text-dim)', overflow: 'hidden',
             textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
             {s.title ?? '(no prompt yet)'}
@@ -230,6 +233,12 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
     const t = setInterval(() => setNow(Date.now()), 10_000);
     return () => clearInterval(t);
   }, []);
+  const mobile = useIsMobile();
+
+  // In-app radar: the needs-you count must live in the list header, because
+  // a phone never shows the tab title or favicon. Unfiltered on purpose.
+  const needs = sessions.filter((s) => s.status === 'needs_input');
+  const bannerTap = usePressActivate(() => { if (needs[0]) onSelect(needs[0].key); });
 
   // One predicate feeds both the rows and the counts, so they cannot disagree.
   const visible = sessions.filter((s) => filter === 'all' || s.source === filter);
@@ -254,31 +263,45 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
   // row instead of mounting a second copy.
   return (
     <nav className="nav-scroll session-nav">
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 3, display: 'flex', gap: 8, alignItems: 'center',
-        padding: '12px 10px', background: 'var(--bg-nav)', borderBottom: '1px solid var(--border)',
-      }}>
-        <span style={{
-          fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700,
-          letterSpacing: '0.1em', color: 'var(--text)',
-        }}>
-          AGENT<span style={{ color: 'var(--green)' }}>VIEW</span>
-        </span>
-        <span className="cursor-blink" style={{
-          width: 7, height: 14, background: 'var(--green)', display: 'inline-block', flexShrink: 0,
-        }} />
-        <select
-          className="filter-select"
-          aria-label="filter by source"
-          value={filter}
-          onChange={(e) => { onFilter(e.target.value as SourceKind | 'all'); e.target.blur(); }}
-          style={{ marginLeft: 'auto' }}
-        >
-          <option value="all">All</option>
-          <option value="terminal">Terminal</option>
-          <option value="desktop">Desktop</option>
-          <option value="codex">CLI</option>
-        </select>
+      <div className="nav-header">
+        <div className="nav-header-row">
+          <span style={{
+            fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700,
+            letterSpacing: '0.1em', color: 'var(--text)',
+          }}>
+            AGENT<span style={{ color: 'var(--green)' }}>VIEW</span>
+          </span>
+          <span className="cursor-blink" style={{
+            width: 7, height: 14, background: 'var(--green)', display: 'inline-block', flexShrink: 0,
+          }} />
+          <select
+            className="filter-select"
+            aria-label="filter by source"
+            value={filter}
+            onChange={(e) => { onFilter(e.target.value as SourceKind | 'all'); e.target.blur(); }}
+            style={{ marginLeft: 'auto' }}
+          >
+            <option value="all">All</option>
+            <option value="terminal">Terminal</option>
+            <option value="desktop">Desktop</option>
+            <option value="codex">CLI</option>
+          </select>
+        </div>
+        {needs.length > 0 && (
+          <button
+            className="needs-banner"
+            {...bannerTap}
+            aria-label={`${needs.length} session${needs.length > 1 ? 's' : ''} need input — jump to the first`}
+          >
+            <span aria-hidden>⚠</span>
+            {needs.length === 1
+              ? `${(personas.get(needs[0].key) ?? personaFor(needs[0].key)).name} needs you`
+              : `${needs.length} need you`}
+            <span style={{ marginLeft: 'auto', fontWeight: 400, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+              jump ›
+            </span>
+          </button>
+        )}
       </div>
       <GroupHeader label="Live" count={live.length} />
       {live.length === 0 && (
@@ -288,7 +311,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
         <Row
           key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
           selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups}
-          showAgent={mixedAgents}
+          showAgent={mixedAgents} mobile={mobile}
         />
       ))}
       <GroupHeader label="Recent" count={recent.length} />
@@ -299,7 +322,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
         <Row
           key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
           selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups}
-          showAgent={mixedAgents}
+          showAgent={mixedAgents} mobile={mobile}
         />
       ))}
       <div style={{ height: 24 }} />

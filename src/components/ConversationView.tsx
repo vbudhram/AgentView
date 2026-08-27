@@ -5,6 +5,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentEvent } from '@/lib/ui-types';
 import { describeToolCall, prettyToolInput, shortToolName, stripAnsi } from '@/lib/describe';
+import { useTapActivate } from '@/lib/mobile';
 
 // GFM (tables, autolinked URLs, strikethrough) plus theme-fitting renderers:
 // links open in a new tab; wide tables scroll inside their own container.
@@ -48,6 +49,7 @@ function toolResultSummary(output: string, isError: boolean): { label: string; d
 
 function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_result' }> }) {
   const [open, setOpen] = useState(false);
+  const toggleTap = useTapActivate(() => setOpen((o) => !o));
   const isCall = e.kind === 'tool_call';
   const glyph = isCall ? '→' : e.isError ? '✗' : '✓';
   const color = isCall ? 'var(--cyan)' : e.isError ? 'var(--red)' : 'var(--green-deep)';
@@ -58,7 +60,7 @@ function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_r
   const body = isCall ? prettyToolInput(e.input) : stripAnsi(e.output);
   return (
     <div style={{ margin: '2px 0' }}>
-      <button className="tool-toggle" onClick={() => setOpen(!open)} style={{ color }}>
+      <button className="tool-toggle" {...toggleTap} style={{ color }}>
         <span style={{ display: 'inline-block', width: 14, color: 'var(--text-faint)' }}>
           {open ? '▾' : '▸'}
         </span>
@@ -124,6 +126,11 @@ const CHUNK = 250;
 export function ConversationView({ events }: { events: AgentEvent[] }) {
   const visible = events.filter((e) => e.kind !== 'turn_status');
   const [shown, setShown] = useState(WINDOW);
+  const earlierTap = useTapActivate(() => {
+    const el = scrollRef.current;
+    expandAnchor.current = el ? el.scrollHeight - el.scrollTop : null;
+    setShown((n) => n + CHUNK);
+  });
   // The window is anchored to the end, so live events never shift older rows.
   const start = Math.max(0, visible.length - shown);
   const windowed = visible.slice(start);
@@ -160,7 +167,10 @@ export function ConversationView({ events }: { events: AgentEvent[] }) {
         // stick to the bottom only while the user is near it
         if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       }}
-      style={{ height: '100%', overflowY: 'auto', padding: '14px 18px 24px' }}
+      style={{
+        height: '100%', overflowY: 'auto', overscrollBehavior: 'contain',
+        padding: '14px 18px calc(24px + env(safe-area-inset-bottom))',
+      }}
     >
       <div style={{ maxWidth: 780, margin: '0 auto' }}>
         {visible.length === 0 && (
@@ -169,14 +179,7 @@ export function ConversationView({ events }: { events: AgentEvent[] }) {
           </div>
         )}
         {start > 0 && (
-          <button
-            className="show-earlier-btn"
-            onClick={() => {
-              const el = scrollRef.current;
-              expandAnchor.current = el ? el.scrollHeight - el.scrollTop : null;
-              setShown((n) => n + CHUNK);
-            }}
-          >
+          <button className="show-earlier-btn" {...earlierTap}>
             ▲ show earlier ({start.toLocaleString()} more)
           </button>
         )}

@@ -22,6 +22,13 @@
   --sel-bg: rgba(74, 222, 128, 0.07);
   --font-display: 'Chakra Petch', 'Avenir Next Condensed', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  /* metadata type scale; bumped for arm's-length reading on phones */
+  --fs-meta: 10.5px;
+  --fs-tiny: 10px;
+  --fs-badge: 9px;
+}
+@media (max-width: 700px) {
+  :root { --fs-meta: 12px; --fs-tiny: 11px; --fs-badge: 11px; --fs-feed: 13px; }
 }
 
 html, body {
@@ -31,6 +38,8 @@ html, body {
   font-family: var(--font-mono);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
+  /* the app owns all scrolling; stop iOS rubber-banding the page itself */
+  overscroll-behavior: none;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -50,18 +59,21 @@ html, body {
   position: relative;
   width: var(--nav-w, 320px);
   height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   flex-shrink: 0;
   background: var(--bg-nav);
   border-right: 1px solid var(--border);
 }
-.app-main { flex: 1; height: 100vh; overflow: hidden; min-width: 0; }
+.app-main { flex: 1; height: 100vh; height: 100dvh; overflow: hidden; min-width: 0; }
 
 /* drag handle between nav and pane */
 .nav-resizer {
   width: 5px;
   margin-left: -5px; /* overlays the nav's right border */
   height: 100vh;
+  height: 100dvh;
   flex-shrink: 0;
   cursor: col-resize;
   background: transparent;
@@ -70,21 +82,58 @@ html, body {
 }
 .nav-resizer:hover, .nav-resizer.dragging { background: var(--green-dim); }
 
-/* narrow window: stack the list above the detail pane. The nav sizes to its
-   content up to a cap, so a short list never leaves a dead scroll area and
-   the Recent rows render right under their header. */
+/* phone model: the list is the home screen; a selected session is a
+   full-screen detail view that slides in over it (chat-app navigation).
+   --app-h tracks the visual viewport so the soft keyboard never covers
+   bottom-pinned surfaces. */
 @media (max-width: 700px) {
-  .app-shell { flex-direction: column; height: 100vh; }
   .session-nav {
     width: 100%;
-    height: auto;
-    max-height: 48vh;
-    flex-shrink: 0;
     border-right: none;
-    border-bottom: 1px solid var(--border-strong);
+    padding-bottom: env(safe-area-inset-bottom);
   }
-  .app-main { height: auto; flex: 1; min-height: 0; }
+  .session-nav .nav-header { padding-top: env(safe-area-inset-top); }
+  .app-main {
+    display: none;
+  }
+  .app-shell.show-detail .session-nav { display: none; }
+  .app-shell.show-detail .app-main {
+    display: block;
+    position: fixed;
+    inset: 0;
+    height: var(--app-h, 100dvh);
+    animation: detail-in 0.22s ease-out;
+  }
   .nav-resizer { display: none; }
+}
+@keyframes detail-in {
+  from { transform: translateX(28px); opacity: 0.4; }
+  to   { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell.show-detail .app-main { animation: none; }
+}
+
+/* ‹ back to the list: the primary affordance of the mobile detail view */
+.back-btn {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  min-width: 44px;
+  min-height: 44px;
+  margin: -8px 0 -8px -12px;
+  padding: 0 6px 0 10px;
+  flex-shrink: 0;
+}
+.back-btn .chev { font-size: 22px; line-height: 1; }
+@media (max-width: 700px) {
+  .back-btn { display: flex; }
 }
 
 /* ---- status animations ---------------------------------------- */
@@ -186,6 +235,41 @@ html, body {
 .filter-select:hover { border-color: var(--green-dim); color: var(--text); }
 .filter-select:focus { outline: 1px solid var(--green-dim); outline-offset: 1px; }
 
+.nav-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg-nav);
+  border-bottom: 1px solid var(--border);
+}
+.nav-header-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 10px;
+}
+
+/* in-app radar: the needs-you count pinned into the list header */
+.needs-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: none;
+  border-top: 1px solid rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--amber);
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: left;
+  cursor: pointer;
+}
+.needs-banner:hover { background: rgba(245, 158, 11, 0.18); }
+
 .nav-row { transition: background-color 0.15s ease, border-color 0.15s ease; }
 .nav-row:hover { background-color: rgba(217, 226, 218, 0.05); }
 .nav-row:focus-visible {
@@ -214,6 +298,12 @@ html, body {
 .tab-btn.active {
   color: var(--text);
   box-shadow: inset 0 -2px 0 var(--green);
+}
+/* touch: ≥44px hit areas via padding, bigger labels, no desktop-only actions */
+@media (max-width: 700px) {
+  .tab-btn { font-size: 12.5px; padding: 14px 10px 12px; min-height: 44px; }
+  .desktop-open-btn, .copy-cd-btn { display: none; }
+  .filter-select { font-size: 13px; padding: 8px 24px 8px 10px; }
 }
 
 .desktop-open-btn {
@@ -291,12 +381,13 @@ html, body {
   letter-spacing: 0.22em;
   text-transform: uppercase;
 }
+/* always visible: the header must read as a button without a hover */
 .term-preview-hint {
   margin-left: auto;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--green);
-  opacity: 0;
+  opacity: 0.75;
   transition: opacity 0.15s ease;
   white-space: nowrap;
 }
@@ -489,3 +580,139 @@ html, body {
 .md tr:nth-child(even) td { background: rgba(217, 226, 218, 0.025); }
 .md a { overflow-wrap: anywhere; }
 .md a:hover { text-decoration-color: var(--cyan); }
+
+/* ---- session detail chrome -------------------------------------- */
+
+.pane-header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 18px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+@media (max-width: 700px) {
+  .pane-header { padding: calc(8px + env(safe-area-inset-top)) 14px 8px; gap: 8px; }
+}
+
+/* tappable session status: full cwd + glyph meanings, no hover needed */
+.session-info-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  max-width: 40%;
+  min-height: 44px;
+  padding: 0 4px;
+  flex-shrink: 1;
+}
+.session-info-btn:hover { color: var(--text-dim); }
+.session-info-strip {
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+/* ---- mobile terminal input -------------------------------------- */
+
+/* key accessory bar + compose field, pinned above the soft keyboard */
+.term-input-bar {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+}
+/* all keys fit the width — no scrolling, so touch-down send is safe */
+.term-keys {
+  display: flex;
+  gap: 4px;
+  padding-bottom: 6px;
+  touch-action: none;
+}
+.term-key {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+.term-key:active { background: var(--green-dim); color: var(--text); border-color: var(--green-dim); }
+.term-compose { display: flex; gap: 8px; }
+.term-compose input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 16px; /* ≥16px: iOS Safari zooms the page on smaller inputs */
+}
+.term-compose input:focus { outline: 1px solid var(--green-dim); border-color: var(--green-dim); }
+.term-compose input::placeholder { color: var(--text-faint); }
+.term-send {
+  min-width: 64px;
+  min-height: 44px;
+  border-radius: 8px;
+  border: 1px solid var(--green-dim);
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--green);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.term-send:active { background: rgba(74, 222, 128, 0.25); }
+
+/* fit-to-width / 1:1 toggle in the terminal header */
+.term-fit-btn {
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  min-height: 28px;
+  cursor: pointer;
+}
+.term-fit-btn:hover { color: var(--text); border-color: var(--green-dim); }
+@media (max-width: 700px) {
+  .term-fit-btn { min-height: 36px; }
+}
+
+/* ---- mobile type scale ------------------------------------------ */
+
+/* arm's-length legibility: nothing under 11px, body ≥14px */
+@media (max-width: 700px) {
+  html, body { font-size: 14px; }
+  .md { font-size: 14px; }
+  .md code, .md pre code { font-size: 12.5px; }
+  .md table { font-size: 12.5px; }
+  .strip { font-size: 12.5px; padding: 7px 14px; }
+  .tool-toggle { font-size: 12.5px; padding: 6px 0; }
+  .tool-body { font-size: 12px; }
+  .show-earlier-btn { font-size: 12.5px; padding: 10px; }
+  .chip-needs { font-size: 11px; line-height: 18px; }
+  .chip-lg { font-size: 12px; line-height: 20px; }
+}

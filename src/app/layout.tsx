@@ -1,6 +1,16 @@
 import './globals.css';
+import type { Viewport } from 'next';
 
 export const metadata = { title: 'AgentView' };
+
+// viewport-fit=cover lets the app paint under the iOS notch and home
+// indicator; safe-area env() insets in globals.css keep content clear.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#0a0d0b',
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
