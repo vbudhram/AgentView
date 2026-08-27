@@ -26,6 +26,7 @@ export function TerminalPreview({ sessionKey, hue, open, onOpenTerminal }: {
   onOpenTerminal: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [link, setLink] = useState<LinkState>('connecting');
   const [dead, setDead] = useState(false);       // 4004: hide the card
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -37,11 +38,25 @@ export function TerminalPreview({ sessionKey, hue, open, onOpenTerminal }: {
     let ws: WebSocket | null = null;
     let term: Terminal | null = null;
     let ro: ResizeObserver | null = null;
+    // The grid keeps the PTY's exact cols×rows (fidelity); a CSS scale
+    // shrinks it to the card width, and the clip window shows the bottom
+    // ~10 rows, the most recent content.
+    const rescale = () => {
+      const wrap = wrapRef.current;
+      const host = ref.current;
+      const t = term;
+      if (!wrap || !host || !t) return;
+      const screen = host.querySelector<HTMLElement>('.xterm-screen');
+      const w = screen?.offsetWidth || host.offsetWidth;
+      const h = screen?.offsetHeight || host.offsetHeight;
+      if (!w || !h) return;
+      const s = Math.min(1, (wrap.clientWidth - 12) / w);
+      host.style.transform = `scale(${s})`;
+      const rowH = (h / t.rows) * s;
+      wrap.style.height = `${Math.round(Math.min(h * s, rowH * 10) + 12)}px`;
+    };
     (async () => {
-      const [{ Terminal }, { FitAddon }] = await Promise.all([
-        import('@xterm/xterm'),
-        import('@xterm/addon-fit'),
-      ]);
+      const { Terminal } = await import('@xterm/xterm');
       if (disposed || !ref.current) return;
       term = new Terminal({
         fontSize: 10.5,
@@ -58,12 +73,13 @@ export function TerminalPreview({ sessionKey, hue, open, onOpenTerminal }: {
           selectionBackground: 'rgba(74, 222, 128, 0.25)',
         },
       });
-      const fit = new FitAddon();
-      term.loadAddon(fit);
       term.open(ref.current);
-      try { fit.fit(); } catch {}
-      ro = new ResizeObserver(() => { try { fit.fit(); } catch {} });
-      ro.observe(ref.current);
+      rescale();
+      document.fonts?.ready.then(() => { if (!disposed) rescale(); });
+      if (wrapRef.current) {
+        ro = new ResizeObserver(rescale);
+        ro.observe(wrapRef.current);
+      }
 
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       ws = new WebSocket(`${proto}://${location.host}/ws/term?key=${encodeURIComponent(sessionKey)}`);
@@ -72,6 +88,17 @@ export function TerminalPreview({ sessionKey, hue, open, onOpenTerminal }: {
       ws.onmessage = (m) => {
         const t = term;
         if (!t) return;
+        // server text frames are control JSON; binary frames are PTY bytes
+        if (typeof m.data === 'string') {
+          try {
+            const msg = JSON.parse(m.data);
+            if (msg?.t === 'size' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
+              t.resize(msg.cols, msg.rows);
+              requestAnimationFrame(rescale);
+            }
+          } catch {}
+          return;
+        }
         t.write(new Uint8Array(m.data as ArrayBuffer));
         // a monitor tracks the tail; xterm pins the viewport if the user scrolled
         t.scrollToBottom();
@@ -141,7 +168,9 @@ export function TerminalPreview({ sessionKey, hue, open, onOpenTerminal }: {
           </div>
           <div className={`term-preview-body-wrap ${collapsed ? 'closed' : ''}`}>
             <div className="term-preview-body-inner">
-              <div ref={ref} className="term-preview-screen" />
+              <div ref={wrapRef} className="term-preview-screen">
+                <div ref={ref} className="term-preview-grid" />
+              </div>
             </div>
           </div>
         </div>

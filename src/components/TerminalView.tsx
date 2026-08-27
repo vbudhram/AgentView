@@ -27,13 +27,12 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
     let disposed = false;
     let ws: WebSocket | null = null;
     let term: Terminal | null = null;
-    let ro: ResizeObserver | null = null;
     (async () => {
-      const [{ Terminal }, { FitAddon }] = await Promise.all([
-        import('@xterm/xterm'),
-        import('@xterm/addon-fit'),
-      ]);
+      const { Terminal } = await import('@xterm/xterm');
       if (disposed || !ref.current) return;
+      // The mirror renders at the PTY's exact cols×rows (the size control
+      // frame sets them); fitting to the container corrupts absolute
+      // cursor-positioned repaints.
       term = new Terminal({
         fontSize: 12.5,
         fontFamily: "'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace",
@@ -46,22 +45,25 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
           selectionBackground: 'rgba(74, 222, 128, 0.25)',
         },
       });
-      const fit = new FitAddon();
-      term.loadAddon(fit);
       term.open(ref.current);
-      fit.fit();
-      // Refit once layout and fonts settle; a fit that raced either can size
-      // the terminal wider than the pane and force page-level overflow.
-      requestAnimationFrame(() => { try { fit.fit(); } catch {} });
-      document.fonts?.ready.then(() => { if (!disposed) try { fit.fit(); } catch {} });
-      ro = new ResizeObserver(() => { try { fit.fit(); } catch {} });
-      ro.observe(ref.current);
 
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       ws = new WebSocket(`${proto}://${location.host}/ws/term?key=${encodeURIComponent(sessionKey)}`);
       ws.binaryType = 'arraybuffer';
       ws.onopen = () => { if (!disposed) setLink('live'); };
-      ws.onmessage = (m) => term?.write(new Uint8Array(m.data as ArrayBuffer));
+      ws.onmessage = (m) => {
+        // Server text frames carry control JSON; binary frames carry PTY bytes.
+        if (typeof m.data === 'string') {
+          try {
+            const msg = JSON.parse(m.data);
+            if (msg?.t === 'size' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
+              term?.resize(msg.cols, msg.rows);
+            }
+          } catch {}
+          return;
+        }
+        term?.write(new Uint8Array(m.data as ArrayBuffer));
+      };
       ws.onclose = (e) => {
         if (disposed) return;
         if (e.code === 4004) {
@@ -75,7 +77,6 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
     })();
     return () => {
       disposed = true;
-      ro?.disconnect();
       ws?.close();
       term?.dispose();
     };
@@ -101,7 +102,10 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
           {LINK_LABEL[link]}
         </span>
       </div>
-      <div ref={ref} style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', padding: '8px 2px 8px 12px' }} />
+      {/* the real-size grid scrolls inside this pane, never at page level */}
+      <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto', padding: '8px 2px 8px 12px' }}>
+        <div ref={ref} style={{ width: 'max-content' }} />
+      </div>
     </div>
   );
 }
