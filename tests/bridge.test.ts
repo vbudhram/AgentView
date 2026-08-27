@@ -200,6 +200,86 @@ describe('BridgeServer', () => {
     await server.close();
   });
 
+  it('stores the PTY size from hello and falls back on bad values', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 20, cols: 190, rows: 45 }) + '\n');
+    await wait(200);
+    const bridge = server.get('claude:20')!;
+    expect(bridge.cols).toBe(190);
+    expect(bridge.rows).toBe(45);
+    client.end();
+    await wait(100);
+
+    // out-of-bounds or non-numeric size falls back to 80x24
+    const client2 = createConnection(sock);
+    await new Promise((r) => client2.on('connect', r));
+    client2.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 21, cols: 9000, rows: 'x' }) + '\n');
+    await wait(200);
+    const b2 = server.get('claude:21')!;
+    expect(b2.cols).toBe(80);
+    expect(b2.rows).toBe(24);
+
+    client2.end();
+    await server.close();
+  });
+
+  it('applies valid resize frames, notifies listeners, ignores invalid ones', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 22, cols: 120, rows: 30 }) + '\n');
+    await wait(200);
+    const bridge = server.get('claude:22')!;
+    const seen: { cols: number; rows: number }[] = [];
+    bridge.onResize((s) => seen.push(s));
+
+    client.write(JSON.stringify({ t: 'resize', cols: 190, rows: 50 }) + '\n');
+    client.write(JSON.stringify({ t: 'resize', cols: 2, rows: 50 }) + '\n');   // below bounds
+    client.write(JSON.stringify({ t: 'resize', cols: 100.5, rows: 50 }) + '\n'); // not integers
+    await wait(200);
+    expect(bridge.cols).toBe(190);
+    expect(bridge.rows).toBe(50);
+    expect(seen).toEqual([{ cols: 190, rows: 50 }]);
+
+    client.end();
+    await server.close();
+  });
+
+  it('serializes a clean ANSI snapshot of the screen model', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 23, cols: 80, rows: 24 }) + '\n');
+    // colored text, then a cursor-addressed status line on row 3
+    const raw = 'first line\r\n\u001b[31msecond\u001b[0m line\u001b[3;5Hstatus';
+    client.write(JSON.stringify({ t: 'out', d: Buffer.from(raw).toString('base64') }) + '\n');
+    await wait(200);
+
+    const snap = server.get('claude:23')!.snapshot().toString('utf8');
+    expect(snap.startsWith('\u001b[0m\u001b[2J\u001b[H')).toBe(true);
+    expect(snap).toContain('\u001b[1;1Hfirst line');
+    expect(snap).toContain('\u001b[2;1Hsecond line'); // colors dropped, text exact
+    expect(snap).toContain('\u001b[3;1H    status');
+    expect(snap.endsWith('\u001b[3;11H')).toBe(true);  // cursor after "status"
+
+    client.end();
+    await server.close();
+  });
+
   it('caps scrollback at SCROLLBACK_MAX even for one oversized frame', async () => {
     const store = makeStore();
     const sock = makeSock();

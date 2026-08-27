@@ -23,14 +23,19 @@ const ROWS = 60;
 const COLS = 500;
 const PENDING_MAX = 4096;
 
-const TOKEN = /\u001b\[([0-9;?]*)([a-zA-Z])|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\^_]|[\r\n\b]|[^\u001b\r\n\b]+|\u001b/g;
+// The third alternative consumes any other escape sequence (intermediates
+// then a final byte), e.g. charset designation ESC ( B, so its bytes never
+// leak into the grid as text.
+const TOKEN = /\u001b\[([0-9;:<=>?]*)[\x20-\x2f]*([\x40-\x7e])|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[\x20-\x2f]*[\x30-\x7e]|[\r\n\b]|[^\u001b\r\n\b]+|\u001b/g;
 
 // True when the escape sequence starting at i is still missing its terminator.
 function incompleteFrom(s: string, i: number): boolean {
   if (i === s.length - 1) return true;
   const rest = s.slice(i);
-  if (s[i + 1] === '[') return !/^\u001b\[[0-9;?]*[a-zA-Z]/.test(rest);
+  if (s[i + 1] === '[') return !/^\u001b\[[0-9;:<=>?]*[\x20-\x2f]*[\x40-\x7e]/.test(rest);
   if (s[i + 1] === ']') return !/^\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/.test(rest);
+  // ESC plus only intermediate bytes so far (e.g. a chunk that ends in "ESC (")
+  if (/^\u001b[\x20-\x2f]+$/.test(rest)) return true;
   return false;
 }
 
@@ -40,9 +45,39 @@ export class SpinnerScreen {
   private c = 0;
   private pending = '';
   private decoder = new StringDecoder('utf8');
+  private cols: number;
+  private rowMax: number;
+
+  constructor(cols = COLS, rows = ROWS) {
+    this.cols = cols;
+    this.rowMax = rows;
+  }
+
+  // Track the PTY size so absolute addressing and scrolling stay faithful.
+  resize(cols: number, rows: number): void {
+    this.cols = cols;
+    const drop = this.rows.length - rows;
+    if (drop > 0) {
+      this.rows.splice(0, drop); // keep the bottom rows, the recent content
+      this.r = Math.max(0, this.r - drop);
+    }
+    this.rowMax = rows;
+    this.r = Math.min(this.r, rows - 1);
+    this.c = Math.min(this.c, cols - 1);
+  }
 
   write(data: Buffer | string): void {
     this.feed(typeof data === 'string' ? data : this.decoder.write(data));
+  }
+
+  // The visible screen as plain text rows plus the cursor position.
+  snapshot(): { lines: string[]; row: number; col: number } {
+    const lines: string[] = [];
+    for (let i = 0; i < this.rows.length; i++) {
+      const row = this.rows[i];
+      lines.push(row ? Array.from(row, (ch) => ch ?? ' ').join('').replace(/\s+$/, '') : '');
+    }
+    return { lines, row: this.r, col: this.c };
   }
 
   reset(): void {
@@ -80,7 +115,10 @@ export class SpinnerScreen {
     while ((m = TOKEN.exec(s))) {
       if (m[2] !== undefined) this.csi(m[1], m[2]);
       else if (m[0] === '\r') this.c = 0;
-      else if (m[0] === '\n') this.r = Math.min(ROWS - 1, this.r + 1);
+      else if (m[0] === '\n') {
+        if (this.r >= this.rowMax - 1) this.rows.shift(); // scroll at the bottom
+        else this.r++;
+      }
       else if (m[0] === '\b') this.c = Math.max(0, this.c - 1);
       else if (m[0][0] !== '\u001b') this.text(m[0]);
     }
@@ -92,15 +130,15 @@ export class SpinnerScreen {
     switch (final) {
       case 'H': case 'f': {
         const col = Number.isFinite(p[1]) && p[1] > 0 ? p[1] : 1;
-        this.r = Math.min(n - 1, ROWS - 1);
-        this.c = Math.min(col - 1, COLS - 1);
+        this.r = Math.min(n - 1, this.rowMax - 1);
+        this.c = Math.min(col - 1, this.cols - 1);
         break;
       }
-      case 'G': this.c = Math.min(n - 1, COLS - 1); break;
-      case 'd': this.r = Math.min(n - 1, ROWS - 1); break;
+      case 'G': this.c = Math.min(n - 1, this.cols - 1); break;
+      case 'd': this.r = Math.min(n - 1, this.rowMax - 1); break;
       case 'A': this.r = Math.max(0, this.r - n); break;
-      case 'B': this.r = Math.min(ROWS - 1, this.r + n); break;
-      case 'C': this.c = Math.min(COLS - 1, this.c + n); break;
+      case 'B': this.r = Math.min(this.rowMax - 1, this.r + n); break;
+      case 'C': this.c = Math.min(this.cols - 1, this.c + n); break;
       case 'D': this.c = Math.max(0, this.c - n); break;
       case 'K': {
         const row = this.rows[this.r];
@@ -129,7 +167,7 @@ export class SpinnerScreen {
   private text(t: string): void {
     const row = this.rows[this.r] ?? (this.rows[this.r] = []);
     for (const ch of t) {
-      if (this.c >= COLS) break;
+      if (this.c >= this.cols) break;
       row[this.c++] = ch;
     }
   }

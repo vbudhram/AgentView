@@ -93,4 +93,40 @@ describe('SpinnerScreen', () => {
     s.write('\u001b[20;1H· Musing… (9s · esc to interrupt)');
     expect(s.spinner()).toBe('Musing… (9s)');
   });
+
+  it('scrolls at the bottom row instead of overwriting it', () => {
+    const s = new SpinnerScreen(80, 3);
+    s.write('one\r\ntwo\r\nthree\r\nfour');
+    const snap = s.snapshot();
+    expect(snap.lines).toEqual(['two', 'three', 'four']);
+    expect(snap.row).toBe(2);
+    expect(snap.col).toBe(4);
+  });
+
+  it('snapshot reports plain text rows and the cursor position', () => {
+    const s = new SpinnerScreen(80, 24);
+    s.write('\u001b[1;1Hhello\u001b[3;5H\u001b[32mworld\u001b[0m');
+    const snap = s.snapshot();
+    expect(snap.lines[0]).toBe('hello');
+    expect(snap.lines[2]).toBe('    world');
+    expect(snap.row).toBe(2);
+    expect(snap.col).toBe(9);
+  });
+
+  it('does not leak non-CSI escape sequences into the grid', () => {
+    const s = new SpinnerScreen(80, 24);
+    // charset designation, keypad mode, and a private CSI must all vanish
+    s.write('\u001b(B\u001b=\u001b[>0q\u001b[cok');
+    const snap = s.snapshot();
+    expect(snap.lines[0]).toBe('ok');
+  });
+
+  it('resize keeps the bottom rows and clamps the cursor', () => {
+    const s = new SpinnerScreen(80, 5);
+    s.write('a\r\nb\r\nc\r\nd\r\ne');
+    s.resize(40, 3);
+    const snap = s.snapshot();
+    expect(snap.lines).toEqual(['c', 'd', 'e']);
+    expect(snap.row).toBe(2);
+  });
 });

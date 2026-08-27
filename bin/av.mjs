@@ -40,17 +40,26 @@ try {
 process.stdin.setRawMode?.(true);
 process.stdin.on('data', (d) => pty.write(d.toString()));
 pty.onData((d) => process.stdout.write(d));
-process.stdout.on('resize', () => pty.resize(process.stdout.columns, process.stdout.rows));
+process.stdout.on('resize', () => {
+  pty.resize(process.stdout.columns, process.stdout.rows);
+  send({ t: 'resize', cols: process.stdout.columns, rows: process.stdout.rows });
+});
 pty.onExit(({ exitCode }) => { restore(); process.exit(exitCode); });
 
 // Bridge connection — best effort; the wrapper works without the app running.
 const sockPath = join(homedir(), '.agentview', 'bridge.sock');
 let sock = null;
+function send(msg) {
+  if (sock) sock.write(JSON.stringify(msg) + '\n');
+}
 function connect() {
   const s = createConnection(sockPath);
   s.on('connect', () => {
     sock = s;
-    s.write(JSON.stringify({ t: 'hello', agent, cwd: process.cwd(), pid: process.pid }) + '\n');
+    s.write(JSON.stringify({
+      t: 'hello', agent, cwd: process.cwd(), pid: process.pid,
+      cols: pty.cols, rows: pty.rows,
+    }) + '\n');
   });
   let buf = '';
   s.on('data', (chunk) => {

@@ -15,18 +15,55 @@ export const SPINNER_STALE_MS = 5000;
 
 export interface Bridge {
   id: string; agent: AgentKind; cwd: string;
+  cols: number; rows: number;
   write(data: Buffer): void;
   onData(cb: (data: Buffer) => void): () => void;
+  onResize(cb: (size: { cols: number; rows: number }) => void): () => void;
   scrollback(): Buffer;
+  snapshot(): Buffer;
+}
+
+// The wrapped PTY reports its real size; anything else is a bad frame.
+export function isValidSize(cols: unknown, rows: unknown): cols is number {
+  return Number.isInteger(cols) && Number.isInteger(rows)
+    && (cols as number) >= 10 && (cols as number) <= 500
+    && (rows as number) >= 10 && (rows as number) <= 500;
 }
 
 class BridgeImpl extends EventEmitter implements Bridge {
   private chunks: Buffer[] = [];
   private size = 0;
-  private screen = new SpinnerScreen();
+  private screen: SpinnerScreen;
   spinner: string | null = null;
   private spinnerAt = 0;
-  constructor(public id: string, public agent: AgentKind, public cwd: string, private socket: Socket) { super(); }
+  constructor(
+    public id: string, public agent: AgentKind, public cwd: string,
+    private socket: Socket, public cols = 80, public rows = 24,
+  ) {
+    super();
+    this.screen = new SpinnerScreen(cols, rows);
+  }
+
+  setSize(cols: number, rows: number): void {
+    if (cols === this.cols && rows === this.rows) return;
+    this.cols = cols;
+    this.rows = rows;
+    this.screen.resize(cols, rows);
+    this.emit('resize', { cols, rows });
+  }
+
+  // A clean attach for mirrors: redraw the current screen from the VT model
+  // instead of replaying raw scrollback that can start mid-escape-sequence.
+  // Colors are lost; the geometry and the text are exact.
+  snapshot(): Buffer {
+    const { lines, row, col } = this.screen.snapshot();
+    let out = '\u001b[0m\u001b[2J\u001b[H';
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i]) out += `\u001b[${i + 1};1H${lines[i]}`;
+    }
+    out += `\u001b[${row + 1};${col + 1}H`;
+    return Buffer.from(out, 'utf8');
+  }
 
   pushOutput(data: Buffer): void {
     this.chunks.push(data);
@@ -67,6 +104,10 @@ class BridgeImpl extends EventEmitter implements Bridge {
   onData(cb: (data: Buffer) => void): () => void {
     this.on('data', cb);
     return () => this.off('data', cb);
+  }
+  onResize(cb: (size: { cols: number; rows: number }) => void): () => void {
+    this.on('resize', cb);
+    return () => this.off('resize', cb);
   }
   scrollback(): Buffer { return Buffer.concat(this.chunks); }
 }
@@ -118,7 +159,12 @@ export class BridgeServer extends EventEmitter {
         try { msg = JSON.parse(line); } catch { continue; }
         if (!msg || typeof msg !== 'object') continue;
         if (msg.t === 'hello' && !bridge && isValidHello(msg)) {
-          bridge = new BridgeImpl(`${msg.agent}:${msg.pid}`, msg.agent, msg.cwd, socket);
+          // An older wrapper sends no size; fall back to the PTY defaults.
+          const sized = isValidSize(msg.cols, msg.rows);
+          bridge = new BridgeImpl(
+            `${msg.agent}:${msg.pid}`, msg.agent, msg.cwd, socket,
+            sized ? msg.cols : 80, sized ? msg.rows : 24,
+          );
           this.bridges.set(bridge.id, bridge);
           const b = bridge;
           b.on('spinner', (text: string | null) => {
@@ -128,6 +174,8 @@ export class BridgeServer extends EventEmitter {
           this.pairAll();
         } else if (msg.t === 'out' && bridge && typeof msg.d === 'string') {
           bridge.pushOutput(Buffer.from(msg.d, 'base64'));
+        } else if (msg.t === 'resize' && bridge && isValidSize(msg.cols, msg.rows)) {
+          bridge.setSize(msg.cols, msg.rows);
         }
       }
       if (buf.length > LINE_BUF_MAX) socket.destroy();

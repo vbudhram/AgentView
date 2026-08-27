@@ -41,12 +41,20 @@ server.on('upgrade', (req, socket, head) => {
     const key = url.searchParams.get('key') ?? '';
     const bridge = rt?.bridge?.forSessionKey(key);
     if (!bridge) { ws.close(4004, 'not steerable'); return; }
-    ws.send(bridge.scrollback());
+    // Server→client text frames are control JSON; binary frames are PTY bytes.
+    // The size goes first so the mirror sets the exact grid before any bytes.
+    ws.send(JSON.stringify({ t: 'size', cols: bridge.cols, rows: bridge.rows }));
+    // A clean redraw from the VT screen model, never raw scrollback that can
+    // start mid-escape-sequence.
+    ws.send(bridge.snapshot());
     const unsub = bridge.onData((d) => { if (ws.readyState === ws.OPEN) ws.send(d); });
+    const unsubResize = bridge.onResize(({ cols, rows }) => {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'size', cols, rows }));
+    });
     ws.on('message', (data, isBinary) => {
       if (!isBinary) bridge.write(Buffer.from(data.toString(), 'utf8'));
     });
-    ws.on('close', unsub);
+    ws.on('close', () => { unsub(); unsubResize(); });
   });
 });
 
