@@ -36,10 +36,16 @@ export function Dashboard() {
   // initial snapshot, then live frames over SSE
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/sessions')
-      .then((r) => r.json())
-      .then((d) => { if (!cancelled && Array.isArray(d.sessions)) setSessions(d.sessions); })
-      .catch(() => {});
+    const loadSnapshot = () =>
+      fetch('/api/sessions', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((d) => { if (!cancelled && Array.isArray(d.sessions)) setSessions(d.sessions); })
+        .catch(() => {});
+    loadSnapshot();
+
+    // Mobile networks and proxies often stall long-lived SSE; poll the small
+    // session list as a fallback so the radar stays current regardless.
+    const poll = setInterval(loadSnapshot, 4000);
 
     const es = new EventSource('/api/stream');
     es.onmessage = (m) => {
@@ -57,7 +63,7 @@ export function Dashboard() {
         }));
       }
     };
-    return () => { cancelled = true; es.close(); };
+    return () => { cancelled = true; clearInterval(poll); es.close(); };
   }, []);
 
   // keyboard order matches the rendered order: Live group first, then Recent

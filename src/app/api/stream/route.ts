@@ -37,12 +37,17 @@ export function GET() {
         lastFp = fp;
         send({ type: 'sessions', sessions });
       };
+      // A comment line kept flowing so intermediaries (mobile proxies, DERP
+      // relays) flush the stream and don't idle-kill the connection.
+      const heartbeat = () => { if (!closed) { try { controller.enqueue(enc.encode(': ping\n\n')); } catch { cleanup(); } } };
+      controller.enqueue(enc.encode('retry: 3000\n\n'));
       sendSessions();
       onEvents = (p) => {
         if (p.events.length > 0) send({ type: 'events', key: p.key, events: p.events });
       };
       store.on('events', onEvents);
-      timer = setInterval(sendSessions, 1000);
+      let ticks = 0;
+      timer = setInterval(() => { sendSessions(); if (++ticks % 15 === 0) heartbeat(); }, 1000);
     },
     cancel() {
       closed = true;
@@ -52,6 +57,11 @@ export function GET() {
   });
 
   return new Response(stream, {
-    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' },
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
   });
 }
