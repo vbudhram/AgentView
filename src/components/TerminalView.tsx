@@ -20,7 +20,15 @@ const LINK_COLOR: Record<LinkState, string> = {
 
 export function TerminalView({ sessionKey }: { sessionKey: string }) {
   const ref = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Pinned to the bottom (where the prompt lives) until the user scrolls up.
+  const pinned = useRef(true);
   const [link, setLink] = useState<LinkState>('connecting');
+
+  const pinToBottom = () => {
+    const el = scrollRef.current;
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+  };
 
   useEffect(() => {
     setLink('connecting');
@@ -58,11 +66,12 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
             const msg = JSON.parse(m.data);
             if (msg?.t === 'size' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
               term?.resize(msg.cols, msg.rows);
+              requestAnimationFrame(pinToBottom);
             }
           } catch {}
           return;
         }
-        term?.write(new Uint8Array(m.data as ArrayBuffer));
+        term?.write(new Uint8Array(m.data as ArrayBuffer), pinToBottom);
       };
       ws.onclose = (e) => {
         if (disposed) return;
@@ -103,7 +112,14 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
         </span>
       </div>
       {/* the real-size grid scrolls inside this pane, never at page level */}
-      <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto', padding: '8px 2px 8px 12px' }}>
+      <div
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+        style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto', padding: '8px 2px 8px 12px' }}
+      >
         <div ref={ref} style={{ width: 'max-content' }} />
       </div>
     </div>
