@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { SessionSummary, SourceKind } from '@/lib/ui-types';
 import { personaFor, accentSoft, type Persona } from '@/lib/persona';
-import { useIsMobile, usePressActivate } from '@/lib/mobile';
+import { useIsMobile, useTapActivate } from '@/lib/mobile';
+import { isMuted, useMuteVersion } from '@/lib/mute';
 import { AgentAvatar } from './AgentAvatar';
 
 // Minutes granularity below 2h keeps neighboring rows distinguishable.
@@ -49,9 +50,10 @@ function AgentBadge({ agent }: { agent: SessionSummary['agent'] }) {
   );
 }
 
-function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile }: {
+function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, muted, flash }: {
   s: SessionSummary; persona: Persona; selected: boolean; onSelect: (k: string) => void;
   now: number; dups: Set<string>; showAgent: boolean; mobile: boolean;
+  muted: boolean; flash: boolean;
 }) {
   const soft = accentSoft(persona.hue);
   const project = projectLabel(s.cwd, dups);
@@ -60,11 +62,12 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile }: {
     ? Math.floor((now - new Date(s.lastActivity).getTime()) / 60000) : 0;
   const longPending = pendingMin >= APPROVAL_HINT_MIN;
   // Attention rows are physically louder: bigger avatar, bigger name, big chip.
-  const attention = s.status === 'needs_input';
-  const rowClass = s.status === 'needs_input' ? 'row-needs_input' : '';
+  // A muted (acknowledged) needs-you row drops the alarm treatment entirely.
+  const attention = s.status === 'needs_input' && !muted;
+  const rowClass = `${attention ? 'row-needs_input' : ''}${flash ? ' row-flash' : ''}`;
   const nowColor =
     s.status === 'working' ? 'var(--green-deep)' :
-    s.status === 'needs_input' ? 'var(--amber)' :
+    s.status === 'needs_input' ? (muted ? 'var(--text-dim)' : 'var(--amber)') :
     s.status === 'blocked' ? 'var(--cyan)' : 'var(--text-dim)';
   // arm's-length sizes on phones: nothing under 11px, names ≥14px
   const avatarSize = attention ? (mobile ? 40 : 36) : (mobile ? 32 : 28);
@@ -116,21 +119,24 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile }: {
             fontFamily: 'var(--font-display)', fontSize: nameSize, fontWeight: 700,
             letterSpacing: '0.02em', whiteSpace: 'nowrap', overflow: 'hidden',
             textOverflow: 'ellipsis', color: ended ? 'var(--text-dim)' : 'var(--text)',
-            // the project name is the WHERE: the branch gives way before it does
-            flexShrink: 0, maxWidth: attention ? 'calc(100% - 128px)' : 'calc(100% - 46px)',
+            // the project name is the WHERE: the branch gives way before it does,
+            // but a shown branch always keeps at least ~6 characters
+            flexShrink: 0,
+            maxWidth: `calc(100% - ${attention ? 128 : s.status === 'needs_input' ? 100 : 46}px${s.gitBranch ? ' - 6ch' : ''})`,
           }}>
             {project}
           </b>
           {s.gitBranch && (
             <span style={{
               fontSize: 'var(--fs-meta)', color: 'var(--text-dim)', overflow: 'hidden',
-              textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0,
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: '6ch',
             }}>
               {s.gitBranch}
             </span>
           )}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-            {s.status === 'needs_input' && <span className="chip-needs chip-lg">NEEDS YOU</span>}
+            {attention && <span className="chip-needs chip-lg">NEEDS YOU</span>}
+            {s.status === 'needs_input' && muted && <span className="chip-muted">muted</span>}
             <span style={{ fontSize: 'var(--fs-meta)', color: 'var(--text-faint)' }}>{rel(s.lastActivity, now)}</span>
           </span>
         </div>
@@ -234,11 +240,32 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
     return () => clearInterval(t);
   }, []);
   const mobile = useIsMobile();
+  useMuteVersion();
 
   // In-app radar: the needs-you count must live in the list header, because
   // a phone never shows the tab title or favicon. Unfiltered on purpose.
-  const needs = sessions.filter((s) => s.status === 'needs_input');
-  const bannerTap = usePressActivate(() => { if (needs[0]) onSelect(needs[0].key); });
+  // Acknowledged (muted) sessions leave the count so it can reach zero.
+  const needs = sessions.filter(
+    (s) => s.status === 'needs_input' && !isMuted(s.key, s.lastActivity));
+
+  // The banner is radar, not a duplicate of the list: it renders only while
+  // the needs-you group (pinned to the top of the list) is scrolled away.
+  // Its tap scrolls back to the group and flashes the first row.
+  const navRef = useRef<HTMLElement>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const [flashKey, setFlashKey] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // tap-activate (pointerup), not press: scrolling on pointerdown would move
+  // a session row under the finger before the synthetic click lands on it
+  const bannerTap = useTapActivate(() => {
+    navRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    if (needs[0]) {
+      setFlashKey(needs[0].key);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setFlashKey(null), 1800);
+    }
+  });
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
 
   // One predicate feeds both the rows and the counts, so they cannot disagree.
   const visible = sessions.filter((s) => filter === 'all' || s.source === filter);
@@ -262,7 +289,15 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
   // The Live/Recent split is a render property, so a status change moves the
   // row instead of mounting a second copy.
   return (
-    <nav className="nav-scroll session-nav">
+    <nav
+      ref={navRef}
+      className="nav-scroll session-nav"
+      onScroll={(e) => {
+        // hysteresis keeps the banner from flapping around the threshold
+        const st = e.currentTarget.scrollTop;
+        setScrolled((prev) => (st > 72 ? true : st < 48 ? false : prev));
+      }}
+    >
       <div className="nav-header">
         <div className="nav-header-row">
           <span style={{
@@ -287,11 +322,11 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
             <option value="codex">CLI</option>
           </select>
         </div>
-        {needs.length > 0 && (
+        {needs.length > 0 && scrolled && (
           <button
             className="needs-banner"
             {...bannerTap}
-            aria-label={`${needs.length} session${needs.length > 1 ? 's' : ''} need input — jump to the first`}
+            aria-label={`${needs.length} session${needs.length > 1 ? 's' : ''} need input — scroll to them`}
           >
             <span aria-hidden>⚠</span>
             {needs.length === 1
@@ -312,6 +347,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
           key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
           selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups}
           showAgent={mixedAgents} mobile={mobile}
+          muted={isMuted(s.key, s.lastActivity)} flash={s.key === flashKey}
         />
       ))}
       <GroupHeader label="Recent" count={recent.length} />
@@ -323,6 +359,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
           key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
           selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups}
           showAgent={mixedAgents} mobile={mobile}
+          muted={isMuted(s.key, s.lastActivity)} flash={s.key === flashKey}
         />
       ))}
       <div style={{ height: 24 }} />

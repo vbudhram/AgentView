@@ -4,20 +4,24 @@ import type { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useIsMobile, usePressActivate } from '@/lib/mobile';
 
-type LinkState = 'connecting' | 'live' | 'closed' | 'unsteerable';
+export type LinkState = 'connecting' | 'live' | 'closed' | 'unsteerable';
 
-const LINK_LABEL: Record<LinkState, string> = {
+export const LINK_LABEL: Record<LinkState, string> = {
   connecting: 'linking…',
   live: 'live mirror',
   closed: 'link closed',
   unsteerable: 'not steerable',
 };
-const LINK_COLOR: Record<LinkState, string> = {
+export const LINK_COLOR: Record<LinkState, string> = {
   connecting: 'var(--text-faint)',
   live: 'var(--green)',
   closed: 'var(--red)',
   unsteerable: 'var(--amber)',
 };
+
+// Below this scale the mirror is unreadable; the fit floor trades full-width
+// fit for a horizontal pan of the scaled grid.
+const FIT_MIN = 0.72;
 
 // Accessory keys Claude Code's own UI is driven by: interrupt, mode/menu
 // navigation, and submit. Sent as raw bytes over the same WS path as typing.
@@ -48,30 +52,48 @@ function Key({ label, hint, onSend }: { label: string; hint: string; onSend: () 
   );
 }
 
-export function TerminalView({ sessionKey }: { sessionKey: string }) {
+export function TerminalView({ sessionKey, fit, onLinkChange }: {
+  sessionKey: string;
+  fit: boolean;
+  onLinkChange?: (l: LinkState) => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fitWrapRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   // Pinned to the bottom (where the prompt lives) until the user scrolls up.
   const pinned = useRef(true);
-  const [link, setLink] = useState<LinkState>('connecting');
+  const [link, setLinkState] = useState<LinkState>('connecting');
+  const onLinkRef = useRef(onLinkChange);
+  onLinkRef.current = onLinkChange;
+  const setLink = useCallback((l: LinkState) => {
+    setLinkState(l);
+    onLinkRef.current?.(l);
+  }, []);
   const isMobile = useIsMobile();
-  // The PTY grid is wider than a phone: scale-to-fit is the phone default,
-  // with a 1:1 toggle for reading fine detail (two-axis pan).
-  const [fit, setFit] = useState(isMobile);
   const fitRef = useRef(fit);
   fitRef.current = fit;
   const [compose, setCompose] = useState('');
-  const fitTap = usePressActivate(() => setFit((f) => !f));
+  // Jump-to-latest: shown when the user scrolls off the bottom; pulses when
+  // new output lands while detached.
+  const [detached, setDetached] = useState(false);
+  const [hasNew, setHasNew] = useState(false);
 
   const pinToBottom = () => {
     const el = scrollRef.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
   };
+  const jumpToLatest = () => {
+    pinned.current = true;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    setDetached(false);
+    setHasNew(false);
+  };
 
   // Fit mode: keep the PTY-exact grid, shrink it to the pane width with a
-  // CSS transform (same trick as the preview card), bottom still anchored.
+  // CSS transform, bottom still anchored. The scale floors at FIT_MIN so the
+  // text stays readable; past the floor the scaled grid pans horizontally.
   const rescale = useCallback(() => {
     const host = ref.current;
     const wrap = fitWrapRef.current;
@@ -80,16 +102,19 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
     if (!fitRef.current) {
       host.style.transform = '';
       wrap.style.height = '';
+      wrap.style.width = '';
+      pinToBottom(); // keep the prompt in view across the mode switch
       return;
     }
     const screen = host.querySelector<HTMLElement>('.xterm-screen');
     const w = screen?.offsetWidth || host.offsetWidth;
     const h = screen?.offsetHeight || host.offsetHeight;
     if (!w || !h) return;
-    const s = Math.min(1, (scroller.clientWidth - 14) / w);
+    const s = Math.min(1, Math.max(FIT_MIN, (scroller.clientWidth - 14) / w));
     host.style.transform = `scale(${s})`;
     host.style.transformOrigin = 'top left';
     wrap.style.height = `${Math.ceil(h * s)}px`;
+    wrap.style.width = `${Math.ceil(w * s)}px`;
     pinToBottom();
   }, []);
 
@@ -145,6 +170,7 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
           return;
         }
         term?.write(new Uint8Array(m.data as ArrayBuffer), pinToBottom);
+        if (!pinned.current) setHasNew(true);
       };
       ws.onclose = (e) => {
         if (disposed) return;
@@ -164,7 +190,7 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
       wsRef.current = null;
       term?.dispose();
     };
-  }, [sessionKey, rescale]);
+  }, [sessionKey, rescale, setLink]);
 
   const sendBytes = (s: string) => {
     const ws = wsRef.current;
@@ -172,6 +198,8 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
       ws.send(s);
       pinned.current = true;
       pinToBottom();
+      setDetached(false);
+      setHasNew(false);
     }
   };
   const sendGuard = useRef(0);
@@ -185,44 +213,31 @@ export function TerminalView({ sessionKey }: { sessionKey: string }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0, overflow: 'hidden', background: '#0a0d0b' }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, padding: '5px 18px',
-        borderBottom: '1px solid var(--border)', background: 'var(--bg-raised)', flexShrink: 0,
-      }}>
-        <span style={{
-          fontFamily: 'var(--font-display)', fontSize: 9, fontWeight: 700,
-          letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--text-faint)',
-        }}>
-          terminal
-        </span>
-        {isMobile && (
-          <button className="term-fit-btn" aria-pressed={fit} {...fitTap}>
-            {fit ? 'fit ▣' : '1:1 ⤢'}
+      {/* the real-size grid scrolls inside this pane, never at page level */}
+      <div style={{ position: 'relative', flex: 1, minHeight: 0, minWidth: 0 }}>
+        <div
+          ref={scrollRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const near = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            pinned.current = near;
+            setDetached(!near);
+            if (near) setHasNew(false);
+          }}
+          style={{
+            height: '100%', minWidth: 0, overflow: 'auto',
+            overscrollBehavior: 'contain', padding: '8px 2px 8px 12px',
+          }}
+        >
+          <div ref={fitWrapRef} style={{ overflow: fit ? 'hidden' : 'visible', width: fit ? undefined : 'max-content' }}>
+            <div ref={ref} style={{ width: 'max-content' }} />
+          </div>
+        </div>
+        {detached && (
+          <button className={`jump-pill${hasNew ? ' fresh' : ''}`} onClick={jumpToLatest} aria-label="jump to latest output">
+            ↓ latest{hasNew ? <span className="jump-dot" aria-label="new output" /> : null}
           </button>
         )}
-        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: LINK_COLOR[link] }}>
-          <span
-            className={link === 'live' ? 'dot dot-working' : 'dot'}
-            style={{ width: 6, height: 6, background: link === 'live' ? undefined : LINK_COLOR[link] }}
-          />
-          {LINK_LABEL[link]}
-        </span>
-      </div>
-      {/* the real-size grid scrolls inside this pane, never at page level */}
-      <div
-        ref={scrollRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-        }}
-        style={{
-          flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto',
-          overscrollBehavior: 'contain', padding: '8px 2px 8px 12px',
-        }}
-      >
-        <div ref={fitWrapRef} style={{ overflow: fit ? 'hidden' : 'visible', width: fit ? '100%' : 'max-content' }}>
-          <div ref={ref} style={{ width: 'max-content' }} />
-        </div>
       </div>
       {isMobile && link !== 'unsteerable' && (
         // Phone input system: xterm's hidden textarea is unusable on iOS, so

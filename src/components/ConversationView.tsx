@@ -1,5 +1,5 @@
 'use client';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -49,7 +49,14 @@ function toolResultSummary(output: string, isError: boolean): { label: string; d
 
 function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_result' }> }) {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const toggleTap = useTapActivate(() => setOpen((o) => !o));
+  // Bottom collapse: a long body strands the reader far from the toggle, so
+  // close from the end and bring the toggle row back into view.
+  const collapseTap = useTapActivate(() => {
+    setOpen(false);
+    rootRef.current?.scrollIntoView({ block: 'nearest' });
+  });
   const isCall = e.kind === 'tool_call';
   const glyph = isCall ? '→' : e.isError ? '✗' : '✓';
   const color = isCall ? 'var(--cyan)' : e.isError ? 'var(--red)' : 'var(--green-deep)';
@@ -58,8 +65,9 @@ function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_r
     : toolResultSummary(stripAnsi(e.output), e.isError ?? false);
   // calls expand to key: value lines instead of raw JSON; results lose ANSI noise
   const body = isCall ? prettyToolInput(e.input) : stripAnsi(e.output);
+  const long = body.length > 700 || body.split('\n').length > 12;
   return (
-    <div style={{ margin: '2px 0' }}>
+    <div ref={rootRef} style={{ margin: '2px 0' }}>
       <button className="tool-toggle" {...toggleTap} style={{ color }}>
         <span style={{ display: 'inline-block', width: 14, color: 'var(--text-faint)' }}>
           {open ? '▾' : '▸'}
@@ -82,6 +90,11 @@ function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_r
               {body.slice(0, MAX_TOOL_BODY) || '(empty)'}
               {body.length > MAX_TOOL_BODY ? '\n… truncated' : ''}
             </pre>
+            {long && (
+              <button className="tool-collapse-btn" {...collapseTap}>
+                ▴ collapse
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -142,6 +155,24 @@ export function ConversationView({ events }: { events: AgentEvent[] }) {
   // distance from the bottom, captured just before revealing earlier events
   const expandAnchor = useRef<number | null>(null);
 
+  // Jump-to-latest: shown while detached from the bottom; counts the events
+  // that arrive while the reader is away.
+  const [detached, setDetached] = useState(false);
+  const [newCount, setNewCount] = useState(0);
+  const prevLen = useRef(visible.length);
+  useEffect(() => {
+    const delta = visible.length - prevLen.current;
+    prevLen.current = visible.length;
+    if (delta > 0 && !stickRef.current) setNewCount((n) => n + delta);
+  }, [visible.length]);
+  const jumpToLatest = () => {
+    stickRef.current = true;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    setDetached(false);
+    setNewCount(0);
+  };
+
   // layout effect: the first bottom-anchor lands before paint (no top flash)
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -159,42 +190,57 @@ export function ConversationView({ events }: { events: AgentEvent[] }) {
   }, [windowed.length, start]);
 
   return (
-    <div
-      ref={scrollRef}
-      className="nav-scroll"
-      onScroll={() => {
-        const el = scrollRef.current;
-        // stick to the bottom only while the user is near it
-        if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-      }}
-      style={{
-        height: '100%', overflowY: 'auto', overscrollBehavior: 'contain',
-        padding: '14px 18px calc(24px + env(safe-area-inset-bottom))',
-      }}
-    >
-      <div style={{ maxWidth: 780, margin: '0 auto' }}>
-        {visible.length === 0 && (
-          <div style={{ padding: 24, textAlign: 'center', fontSize: 11.5, color: 'var(--text-faint)' }}>
-            no conversation events yet
-          </div>
-        )}
-        {start > 0 && (
-          <button className="show-earlier-btn" {...earlierTap}>
-            ▲ show earlier ({start.toLocaleString()} more)
-          </button>
-        )}
-        {windowed.map((e, i) => (
-          <motion.div
-            key={start + i}
-            title={new Date(e.ts).toLocaleString()}
-            initial={start + i < initial.current ? false : { opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
-          >
-            <Item e={e} />
-          </motion.div>
-        ))}
+    <div style={{ position: 'relative', height: '100%' }}>
+      <div
+        ref={scrollRef}
+        className="nav-scroll"
+        onScroll={() => {
+          const el = scrollRef.current;
+          if (!el) return;
+          // stick to the bottom only while the user is near it
+          const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          stickRef.current = near;
+          setDetached(!near);
+          if (near) setNewCount(0);
+        }}
+        style={{
+          height: '100%', overflowY: 'auto', overscrollBehavior: 'contain',
+          padding: '14px 18px calc(24px + env(safe-area-inset-bottom))',
+        }}
+      >
+        <div style={{ maxWidth: 780, margin: '0 auto' }}>
+          {visible.length === 0 && (
+            <div style={{ padding: 24, textAlign: 'center', fontSize: 11.5, color: 'var(--text-faint)' }}>
+              no conversation events yet
+            </div>
+          )}
+          {start > 0 && (
+            <button className="show-earlier-btn" {...earlierTap}>
+              ▲ show earlier ({start.toLocaleString()} more)
+            </button>
+          )}
+          {windowed.map((e, i) => (
+            <motion.div
+              key={start + i}
+              title={new Date(e.ts).toLocaleString()}
+              initial={start + i < initial.current ? false : { opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+            >
+              <Item e={e} />
+            </motion.div>
+          ))}
+        </div>
       </div>
+      {detached && (
+        <button
+          className={`jump-pill${newCount > 0 ? ' fresh' : ''}`}
+          onClick={jumpToLatest}
+          aria-label="jump to the latest message"
+        >
+          ↓ latest{newCount > 0 ? <span className="jump-count">{newCount > 99 ? '99+' : newCount}</span> : null}
+        </button>
+      )}
     </div>
   );
 }

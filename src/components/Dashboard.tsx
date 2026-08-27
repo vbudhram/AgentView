@@ -4,6 +4,7 @@ import { MotionConfig } from 'motion/react';
 import type { AgentEvent, SessionSummary, SourceKind } from '@/lib/ui-types';
 import { personaFor, resolvePersonas } from '@/lib/persona';
 import { useIsMobile, useVisualViewportVar } from '@/lib/mobile';
+import { isMuted, useMuteVersion } from '@/lib/mute';
 import { SessionNav } from './SessionNav';
 import { SessionPane } from './SessionPane';
 
@@ -108,9 +109,12 @@ export function Dashboard() {
 
   // Title + favicon radar: the needs-you count reaches the user before they
   // ever focus this window. Only needs_input is a confirmed "needs you";
-  // a pending tool call is working state, so it counts as working.
+  // a pending tool call is working state, so it counts as working. Muted
+  // (acknowledged) sessions leave the count so it can reach zero.
+  const muteVersion = useMuteVersion();
   useEffect(() => {
-    const needs = sessions.filter((s) => s.status === 'needs_input');
+    const needs = sessions.filter(
+      (s) => s.status === 'needs_input' && !isMuted(s.key, s.lastActivity));
     const working = sessions.filter((s) => s.status === 'working' || s.status === 'blocked').length;
     document.title =
       needs.length === 1 ? `⚠ ${personas.get(needs[0].key)?.name ?? '1'} needs you — AgentView` :
@@ -126,7 +130,7 @@ export function Dashboard() {
     link.href = needs.length > 0
       ? faviconFor('#fbbf24', true)
       : faviconFor(working > 0 ? '#4ade80' : '#556057', false);
-  }, [sessions, personas]);
+  }, [sessions, personas, muteVersion]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

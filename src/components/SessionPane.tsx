@@ -3,10 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentEvent, SessionSummary } from '@/lib/ui-types';
 import { ConversationView } from './ConversationView';
 import { ActivityFeed } from './ActivityFeed';
-import { TerminalView } from './TerminalView';
+import { TerminalView, LINK_COLOR, LINK_LABEL, type LinkState } from './TerminalView';
 import { TerminalPreview } from './TerminalPreview';
 import { accentSoft, type Persona } from '@/lib/persona';
-import { usePressActivate } from '@/lib/mobile';
+import { usePressActivate, useTapActivate } from '@/lib/mobile';
+import { isMuted, setMuted, useMuteVersion } from '@/lib/mute';
 import { AgentAvatar } from './AgentAvatar';
 
 // Client-side transcript cache: revisiting a session renders instantly
@@ -202,10 +203,42 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
 
   const soft = accentSoft(persona.hue);
   const project = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : null;
-  // Tap-to-reveal session info: on touch there is no hover/title, so the
-  // cwd in the top bar toggles a strip with the full path and glyph meanings.
+  // Tap-to-reveal session info: on touch there is no hover/title, so the ⓘ
+  // toggles a strip with the full path and glyph meanings. The path itself
+  // lives ONLY there — the header shows project · branch once.
   const [infoOpen, setInfoOpen] = useState(false);
   const infoTap = usePressActivate(() => setInfoOpen((o) => !o));
+
+  // Wrapper-outdated: a small ⌁! pill, not a banner. The explanation sheet
+  // opens once per browser session (sessionStorage) and then on demand.
+  const wrapDismissKey = `agentview.wrapdismiss.${sessionKey}`;
+  const [wrapOpen, setWrapOpen] = useState<boolean>(() => {
+    try { return sessionStorage.getItem(wrapDismissKey) !== '1'; } catch { return true; }
+  });
+  const dismissWrap = () => {
+    setWrapOpen(false);
+    try { sessionStorage.setItem(wrapDismissKey, '1'); } catch {}
+  };
+  const wrapTap = usePressActivate(() => {
+    if (wrapOpen) dismissWrap();
+    else setWrapOpen(true);
+  });
+
+  // Needs-you strip: one line collapsed; tap for the full ask + where to reply.
+  const [needsOpen, setNeedsOpen] = useState(false);
+  const needsTap = useTapActivate(() => setNeedsOpen((o) => !o));
+  // Ack/mute: silences THIS ask until the session's next new activity.
+  useMuteVersion();
+  const muted = session ? isMuted(sessionKey, session.lastActivity) : false;
+  const muteTap = useTapActivate(() => {
+    if (session) setMuted(sessionKey, session.lastActivity, !muted);
+  });
+
+  // Terminal chrome lives in the tab row (no sub-header): fit toggle + link dot.
+  const [fitChoice, setFitChoice] = useState<boolean | null>(null);
+  const fit = fitChoice ?? isMobile;
+  const fitTap = usePressActivate(() => setFitChoice(!fit));
+  const [link, setLink] = useState<LinkState>('connecting');
 
   // 10s tick keeps the pending-tool elapsed time honest between frames.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -223,7 +256,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
           <BackButton onBack={onBack} />
         )}
         <AgentAvatar status={session?.status ?? 'idle'} hue={persona.hue} size={34} />
-        <div style={{ minWidth: 0 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{
             fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700,
             letterSpacing: '0.04em', color: 'var(--text)', whiteSpace: 'nowrap',
@@ -242,6 +275,16 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
             {persona.name}
           </div>
         </div>
+        {session?.steerable && session.wrapperOutdated && (
+          <button
+            className="wrap-pill"
+            aria-expanded={wrapOpen}
+            aria-label="wrapper outdated — details"
+            {...wrapTap}
+          >
+            ⌁!
+          </button>
+        )}
         <button
           className="session-info-btn"
           title={session?.cwd ?? undefined}
@@ -249,9 +292,18 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
           aria-label="session details"
           {...infoTap}
         >
-          {session?.cwd ? `${session.cwd} ${infoOpen ? '▴' : '▾'}` : infoOpen ? '▴' : '▾'}
+          ⓘ {infoOpen ? '▴' : '▾'}
         </button>
       </div>
+      {session?.steerable && session.wrapperOutdated && wrapOpen && (
+        <div className="session-info-strip wrap-sheet">
+          <span>
+            ⌁! wrapper outdated — the mirror may render incorrectly. Restart
+            this session (<code>claude --continue</code>) to upgrade.
+          </span>
+          <button className="wrap-dismiss" onClick={dismissWrap}>dismiss</button>
+        </div>
+      )}
       {infoOpen && (
         <div className="session-info-strip">
           <div style={{ color: 'var(--text)' }}>{session?.cwd ?? '(no working directory)'}</div>
@@ -266,10 +318,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
           </div>
         </div>
       )}
-      <div style={{
-        display: 'flex', gap: 18, alignItems: 'center', padding: '0 18px',
-        borderBottom: '1px solid var(--border)', flexShrink: 0,
-      }}>
+      <div className="tab-row">
         {tabs.map((t) => (
           <button
             key={t}
@@ -284,47 +333,80 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
             {t}
           </button>
         ))}
-        {session?.source === 'desktop' && (
-          <button
-            className="desktop-open-btn"
-            onClick={() => fetch('/api/open-desktop', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ sessionId: session?.sessionId ?? null }),
-            })}
-          >
-            Open in Claude Desktop
-          </button>
-        )}
+        <span className="tab-row-tools">
+          {session?.source === 'desktop' && !isMobile && (
+            <button
+              className="desktop-open-btn"
+              onClick={() => fetch('/api/open-desktop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: session?.sessionId ?? null }),
+              })}
+            >
+              Open in Claude Desktop
+            </button>
+          )}
+          {tab === 'terminal' && (
+            <>
+              {isMobile && (
+                <button className="term-fit-btn" aria-pressed={fit} {...fitTap}>
+                  {fit ? 'fit ▣' : '1:1 ⤢'}
+                </button>
+              )}
+              <span className="term-link" style={{ color: LINK_COLOR[link] }} title={LINK_LABEL[link]}>
+                <span
+                  className={link === 'live' ? 'dot dot-working' : 'dot'}
+                  style={{ width: 6, height: 6, background: link === 'live' ? undefined : LINK_COLOR[link] }}
+                />
+                <span className="term-link-label">{LINK_LABEL[link]}</span>
+              </span>
+            </>
+          )}
+        </span>
       </div>
 
       {session?.spinner ? (
         // The CLI's own live spinner line: the strip mirrors the terminal.
         <div className="strip" style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--green-deep)' }}>
           <span className="typing" aria-label="working"><i /><i /><i /></span>
-          <span style={{ color: 'var(--green)' }}>{session.spinner}</span>
+          <span style={{ color: 'var(--green)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.spinner}</span>
         </div>
       ) : session?.status === 'working' ? (
         <div className="strip" style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--green-deep)' }}>
           <span className="typing" aria-label="working"><i /><i /><i /></span>
           working{session.now ? ' — ' : ''}
-          {session.now && <span style={{ color: 'var(--green)' }}>{session.now}</span>}
+          {session.now && <span style={{ color: 'var(--green)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.now}</span>}
         </div>
       ) : null}
-      {session?.steerable && session.wrapperOutdated && (
-        <div className="strip" style={{ color: 'var(--amber)', fontSize: 11.5 }}>
-          ⌁! wrapper outdated — the mirror may render incorrectly. Restart this
-          session (<code>claude --continue</code>) to upgrade.
-        </div>
-      )}
       {session?.status === 'needs_input' && (
-        <div className="strip row-needs_input" style={{ color: 'var(--amber)', fontWeight: 600 }}>
-          ⏸ {persona.name} needs you{session.now ? ` — ${session.now}` : ''}
-          <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
-            · {respondHint(session)}
-          </span>
-          {!session.steerable && session.source !== 'desktop' && session.cwd && (
-            <CopyCdButton cwd={session.cwd} />
+        <div className={`strip needs-strip${muted ? ' muted' : ' row-needs_input'}`}>
+          <div className="needs-strip-row">
+            <button
+              className="needs-strip-main"
+              aria-expanded={needsOpen}
+              aria-label="what this session needs"
+              {...needsTap}
+            >
+              <span className={`needs-strip-line${needsOpen ? ' open' : ''}`}>
+                ⏸ needs you{session.now ? ` — ${session.now}` : ''}
+              </span>
+            </button>
+            <button
+              className="mute-btn"
+              title={muted ? 'unmute this alarm' : 'acknowledge — mute until this session\'s next activity'}
+              aria-pressed={muted}
+              {...muteTap}
+            >
+              {muted ? '✓ muted' : 'mute'}
+            </button>
+          </div>
+          {needsOpen && (
+            <div className="needs-strip-detail">
+              · {respondHint(session)}
+              {!session.steerable && session.source !== 'desktop' && session.cwd && (
+                <CopyCdButton cwd={session.cwd} />
+              )}
+            </div>
           )}
         </div>
       )}
@@ -350,7 +432,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
 
       <div style={{ flex: 1, minHeight: 0 }}>
         {tab === 'terminal' ? (
-          <TerminalView sessionKey={sessionKey} />
+          <TerminalView sessionKey={sessionKey} fit={fit} onLinkChange={setLink} />
         ) : snapshot === null ? (
           <LoadingSkeleton />
         ) : tab === 'conversation' ? (
