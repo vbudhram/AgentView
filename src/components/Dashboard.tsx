@@ -23,6 +23,14 @@ export function Dashboard() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [filter, setFilter] = useState<SourceKind | 'all'>('all');
+  const [navW, setNavW] = useState(() => {
+    if (typeof window === 'undefined') return 320;
+    try {
+      const saved = Number(localStorage.getItem('agentview.navW'));
+      return saved >= 240 && saved <= 600 ? saved : 320;
+    } catch { return 320; }
+  });
+  const [dragging, setDragging] = useState(false);
   const [liveEvents, setLiveEvents] = useState<Record<string, AgentEvent[]>>({});
 
   // initial snapshot, then live frames over SSE
@@ -109,7 +117,7 @@ export function Dashboard() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <div className="app-shell">
+    <div className="app-shell" style={{ ['--nav-w' as string]: `${navW}px` }}>
       <SessionNav
         sessions={sessions}
         personas={personas}
@@ -117,6 +125,26 @@ export function Dashboard() {
         onSelect={setSelectedKey}
         filter={filter}
         onFilter={setFilter}
+      />
+      <div
+        className={`nav-resizer${dragging ? ' dragging' : ''}`}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="resize session list"
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setDragging(true);
+        }}
+        onPointerMove={(e) => {
+          if (!dragging) return;
+          const w = Math.min(600, Math.max(240, Math.round(e.clientX)));
+          setNavW(w);
+        }}
+        onPointerUp={(e) => {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+          setDragging(false);
+          try { localStorage.setItem('agentview.navW', String(navW)); } catch {}
+        }}
       />
       <main className="app-main">
         {selectedKey ? (

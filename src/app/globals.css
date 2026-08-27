@@ -48,7 +48,7 @@ html, body {
 .app-shell { display: flex; background: var(--bg); max-width: 100vw; overflow-x: clip; }
 .session-nav {
   position: relative;
-  width: 320px;
+  width: var(--nav-w, 320px);
   height: 100vh;
   overflow-y: auto;
   flex-shrink: 0;
@@ -56,6 +56,19 @@ html, body {
   border-right: 1px solid var(--border);
 }
 .app-main { flex: 1; height: 100vh; overflow: hidden; min-width: 0; }
+
+/* drag handle between nav and pane */
+.nav-resizer {
+  width: 5px;
+  margin-left: -5px; /* overlays the nav's right border */
+  height: 100vh;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background-color 0.15s ease;
+  touch-action: none;
+}
+.nav-resizer:hover, .nav-resizer.dragging { background: var(--green-dim); }
 
 /* narrow window: stack the list above the detail pane. The nav sizes to its
    content up to a cap, so a short list never leaves a dead scroll area and
@@ -71,6 +84,7 @@ html, body {
     border-bottom: 1px solid var(--border-strong);
   }
   .app-main { height: auto; flex: 1; min-height: 0; }
+  .nav-resizer { display: none; }
 }
 
 /* ---- status animations ---------------------------------------- */

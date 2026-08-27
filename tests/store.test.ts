@@ -196,6 +196,21 @@ describe('SessionStore', () => {
     expect(got).toEqual(['claude:f1', 'claude:f1']);
   });
 
+  it('marks only the most recent session in an alive cwd as alive', () => {
+    const s = new SessionStore();
+    const msg = (iso: string) => ({
+      events: [{ kind: 'assistant_message' as const, ts: iso, text: 'done' }],
+      meta: { sessionId: 'x', cwd: '/p', source: 'terminal' as const },
+    });
+    s.apply('claude', 'old', msg('2026-08-26T08:00:00Z'));
+    s.apply('claude', 'new', msg('2026-08-26T10:00:00Z'));
+    s.setAliveCwds(new Set(['/p']));
+    const later = new Date('2026-08-26T10:05:00Z');
+    const by = Object.fromEntries(s.summaries(later).map((x) => [x.key, x.status]));
+    expect(by['claude:new']).toBe('needs_input');
+    expect(by['claude:old']).toBe('ended');
+  });
+
   it('keeps the first cwd as the session identity when later lines cd elsewhere', () => {
     const s = new SessionStore();
     s.apply('claude', 'f1', at('2026-08-26T10:00:00Z', 'start'));

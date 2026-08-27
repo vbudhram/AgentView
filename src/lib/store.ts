@@ -98,11 +98,21 @@ export class SessionStore extends EventEmitter {
 
   summaries(now: Date = new Date()): SessionSummary[] {
     const out: SessionSummary[] = [];
+    // A live process in a cwd belongs to the MOST RECENT session there; older
+    // sessions in the same directory must not ride along as alive.
+    const latestByHome = new Map<string, string>();
+    for (const rec of this.sessions.values()) {
+      if (!rec.cwd) continue;
+      const home = `${rec.agent}:${rec.cwd}`;
+      const cur = latestByHome.get(home);
+      if (!cur || rec.lastActivity > cur) latestByHome.set(home, rec.lastActivity);
+    }
     for (const [key, rec] of this.sessions) {
       const age = now.getTime() - new Date(rec.lastActivity).getTime();
       if (age > DAY_MS) continue;
       const last = rec.events[rec.events.length - 1];
-      const alive = !!rec.cwd && this.aliveCwds.has(rec.cwd);
+      const alive = !!rec.cwd && this.aliveCwds.has(rec.cwd)
+        && latestByHome.get(`${rec.agent}:${rec.cwd}`) === rec.lastActivity;
       let status: SessionStatus;
       if (age <= WORKING_MS) status = 'working';
       else if (!alive) status = 'ended';
