@@ -82,8 +82,10 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, mut
   return (
     <motion.div
       ref={ref}
-      // touch: a spring-reordering row moves between aim and tap; skip it
-      layout={mobile ? false : 'position'}
+      // Reorders are rare now (band changes only) and tap-guarded, so the
+      // spring runs on touch too: a row that moves must be SEEN moving,
+      // never teleport under a finger.
+      layout="position"
       transition={{ layout: { type: 'spring', stiffness: 500, damping: 40 } }}
       role="button"
       tabIndex={0}
