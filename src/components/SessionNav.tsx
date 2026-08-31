@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import type { SessionSummary, SourceKind } from '@/lib/ui-types';
 import { personaFor, accentSoft, type Persona } from '@/lib/persona';
 import { useIsMobile, useTapActivate } from '@/lib/mobile';
@@ -186,26 +186,20 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, mut
             {'⚙ '}{s.spinner}
           </div>
         ) : s.now ? (
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.div
-              key={s.now}
-              initial={{ y: 8, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: -8, opacity: 0 }}
-              transition={{ duration: 0.18 }}
-              style={{
-                fontSize: nowSize, color: nowColor, whiteSpace: 'nowrap',
-                overflow: 'hidden', textOverflow: 'ellipsis',
-              }}
-            >
-              {s.status === 'working' ? '⚙ ' : s.status === 'blocked' ? '⏳ ' : ''}
-              {s.now}
-              {s.status === 'blocked' ? ` — ${rel(s.lastActivity, now)}` : ''}
-              {s.status === 'blocked' && (longPending || s.approvalLikely) ? (
-                <span style={{ color: 'var(--text-dim)' }}> · may need approval</span>
-              ) : null}
-            </motion.div>
-          </AnimatePresence>
+          // Plain element on purpose: s.now can change several times per
+          // second, and per-change AnimatePresence exits leaked zombie nodes
+          // into layout. Never key/animate this line on the ticker value.
+          <div style={{
+            fontSize: nowSize, color: nowColor, whiteSpace: 'nowrap',
+            overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {s.status === 'working' ? '⚙ ' : s.status === 'blocked' ? '⏳ ' : ''}
+            {s.now}
+            {s.status === 'blocked' ? ` — ${rel(s.lastActivity, now)}` : ''}
+            {s.status === 'blocked' && (longPending || s.approvalLikely) ? (
+              <span style={{ color: 'var(--text-dim)' }}> · may need approval</span>
+            ) : null}
+          </div>
         ) : s.status === 'working' ? (
           <span className="typing" aria-label="working"><i /><i /><i /></span>
         ) : (
