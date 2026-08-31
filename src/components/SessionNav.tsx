@@ -67,8 +67,12 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, mut
   const avatarSize = attention ? (mobile ? 40 : 36) : (mobile ? 32 : 28);
   const nameSize = mobile ? (attention ? 16 : ended ? 13 : 14) : (attention ? 14.5 : ended ? 11.5 : 12.5);
   const nowSize = mobile ? (attention ? 13 : 12) : (attention ? 12 : 10.5);
+  // Without a live spinner a pending tool and a permission prompt look the
+  // same; the label must not assert one over the other.
   const statusLabel =
-    s.status === 'blocked' ? (s.approvalLikely ? 'may need approval' : 'running a tool')
+    s.status === 'blocked'
+      ? (s.approvalLikely ? 'may need approval'
+        : s.spinner ? 'running a tool' : 'tool or approval?')
       : s.status.replace('_', ' ');
   const ref = useRef<HTMLDivElement>(null);
   // Selection and focus are one system: selecting focuses the row and keeps

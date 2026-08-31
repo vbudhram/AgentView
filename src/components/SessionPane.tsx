@@ -343,7 +343,12 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
                 {session.status === 'ended'
                   ? `ended ${relDur(session.lastActivity, nowMs)} ago`
                   : session.status === 'needs_input' ? 'needs you'
-                  : session.status === 'blocked' ? 'running a tool'
+                  : session.status === 'blocked'
+                    // Without a live spinner the app cannot tell a running
+                    // tool from a pending approval; say so instead of guessing.
+                    ? (session.approvalLikely ? 'may need approval'
+                      : session.spinner ? 'running a tool'
+                      : 'running a tool — or awaiting approval')
                   : session.status}
               </span>
             )}
@@ -513,7 +518,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
         <div className="strip" style={{ color: 'var(--cyan)', fontWeight: 600 }}>
           ⏳ {session.now ?? 'running a tool'} — {relDur(session.lastActivity, nowMs)}
           <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>
-            {longPending ? '· still running — may need approval' : '· tool still running'}
+            {longPending ? '· still running — may need approval' : '· running — or waiting for approval'}
           </span>
         </div>
       )}
