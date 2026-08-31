@@ -34,6 +34,17 @@ export function Dashboard() {
     } catch { return 320; }
   });
   const [dragging, setDragging] = useState(false);
+  // One click swaps between the compact default and a wide list; the drag
+  // handle still gives fine control, and the chosen width is remembered.
+  const NAV_DEFAULT = 320;
+  const NAV_WIDE = 520;
+  const toggleNavWidth = useCallback(() => {
+    setNavW((w) => {
+      const next = w >= (NAV_DEFAULT + NAV_WIDE) / 2 ? NAV_DEFAULT : NAV_WIDE;
+      try { localStorage.setItem('agentview.navW', String(next)); } catch {}
+      return next;
+    });
+  }, []);
   const [liveEvents, setLiveEvents] = useState<Record<string, AgentEvent[]>>({});
   // Freshness: when the last successful update landed, plus a slow tick to
   // re-check it. A frozen tab must not look identical to a live one.
@@ -213,7 +224,7 @@ export function Dashboard() {
   return (
     <MotionConfig reducedMotion="user">
     <div
-      className={`app-shell${showDetail ? ' show-detail' : ''}`}
+      className={`app-shell${showDetail ? ' show-detail' : ''}${dragging ? ' resizing' : ''}`}
       style={{ ['--nav-w' as string]: `${navW}px` }}
     >
       {staleSecs > 15 && (
@@ -235,11 +246,18 @@ export function Dashboard() {
         personas={personas}
         selectedKey={selectedKey}
         onSelect={select}
+        navWide={navW >= (320 + 520) / 2}
+        onToggleWidth={toggleNavWidth}
         filter={filter}
         onFilter={setFilter}
       />
       <div
         className={`nav-resizer${dragging ? ' dragging' : ''}`}
+        title="drag to resize · double-click to reset"
+        onDoubleClick={() => {
+          setNavW(320);
+          try { localStorage.setItem('agentview.navW', '320'); } catch {}
+        }}
         role="separator"
         aria-orientation="vertical"
         aria-label="resize session list"

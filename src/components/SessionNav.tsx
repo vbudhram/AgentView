@@ -229,10 +229,12 @@ function GroupHeader({ label, count }: { label: string; count: number }) {
   );
 }
 
-export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, onFilter }: {
+export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, onFilter,
+  navWide = false, onToggleWidth }: {
   sessions: SessionSummary[]; personas: Map<string, Persona>; selectedKey: string | null;
   onSelect: (k: string) => void;
   filter: SourceKind | 'all'; onFilter: (f: SourceKind | 'all') => void;
+  navWide?: boolean; onToggleWidth?: () => void;
 }) {
   // 10s tick keeps the relative times fresh between stream frames
   const [now, setNow] = useState(() => Date.now());
@@ -317,12 +319,20 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
           <span className="cursor-blink" style={{
             width: 7, height: 14, background: 'var(--green)', display: 'inline-block', flexShrink: 0,
           }} />
+          <button
+            className="nav-width-btn"
+            onClick={onToggleWidth}
+            aria-label={navWide ? 'narrow the session list' : 'widen the session list'}
+            title={navWide ? 'narrow the list' : 'widen the list'}
+            style={{ marginLeft: 'auto' }}
+          >
+            {navWide ? '⟨⟩' : '⟩⟨'}
+          </button>
           <select
             className="filter-select"
             aria-label="filter by source"
             value={filter}
             onChange={(e) => { onFilter(e.target.value as SourceKind | 'all'); e.target.blur(); }}
-            style={{ marginLeft: 'auto' }}
           >
             <option value="all">All</option>
             <option value="terminal">Terminal</option>

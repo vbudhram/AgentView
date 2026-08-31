@@ -59,6 +59,7 @@ html, body {
   .nav-scroll::-webkit-scrollbar-thumb:hover { background: var(--green-dim); }
   .nav-resizer:hover { background: var(--green-dim); }
   .filter-select:hover { border-color: var(--green-dim); color: var(--text); }
+  .nav-width-btn:hover { color: var(--text); border-color: var(--green-dim); }
   .needs-banner:hover { background: rgba(245, 158, 11, 0.18); }
   .nav-row:hover { background-color: rgba(217, 226, 218, 0.05); }
   .tab-btn:hover { color: var(--text); }
@@ -87,6 +88,7 @@ html, body {
 .session-nav {
   position: relative;
   width: var(--nav-w, 320px);
+  transition: width 0.22s cubic-bezier(0.32, 0.72, 0, 1);
   height: 100vh;
   height: 100dvh;
   overflow-y: auto;
@@ -99,8 +101,9 @@ html, body {
 
 /* drag handle between nav and pane */
 .nav-resizer {
-  width: 5px;
-  margin-left: -5px; /* overlays the nav's right border */
+  position: relative;
+  width: 11px;
+  margin-left: -11px; /* overlays the nav's right border */
   height: 100vh;
   height: 100dvh;
   flex-shrink: 0;
@@ -110,6 +113,42 @@ html, body {
   touch-action: none;
 }
 .nav-resizer.dragging { background: var(--green-dim); }
+/* the grip: three faint dots, so the handle is findable without hovering */
+.nav-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 3px;
+  height: 26px;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background-image: radial-gradient(circle, var(--border-strong) 1px, transparent 1.2px);
+  background-size: 3px 6px;
+  opacity: 0.9;
+  transition: background-image 0.15s ease;
+}
+.nav-resizer:hover::after, .nav-resizer.dragging::after {
+  background-image: radial-gradient(circle, var(--green) 1px, transparent 1.2px);
+}
+/* width toggle in the nav header */
+.nav-width-btn {
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 6px;
+  flex-shrink: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.app-shell.resizing .session-nav { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .session-nav { transition: none; }
+}
 
 /* phone model: the list is the home screen; a selected session is a
    full-screen detail view that slides in over it (chat-app navigation).
