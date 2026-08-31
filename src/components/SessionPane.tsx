@@ -237,6 +237,17 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
       setSnapshot(snap);
     });
   }, [sessionKey]);
+  // "Jump to start" needs everything the server holds.
+  const loadAll = useCallback(() => {
+    if (loadingEarlier.current) return;
+    loadingEarlier.current = true;
+    fetchTail(sessionKey, 1e9).then((snap) => {
+      loadingEarlier.current = false;
+      if (!snap) return;
+      cachePut(sessionKey, snap);
+      setSnapshot(snap);
+    });
+  }, [sessionKey]);
   // Events on the server before the snapshot's first one (turn_status included,
   // so the expander count is approximate for the conversation view).
   const earlierAvailable = snapshot ? Math.max(0, snapshot.total - snapshot.events.length) : 0;
@@ -493,7 +504,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
         ) : snapshot === null ? (
           <LoadingSkeleton />
         ) : tab === 'conversation' ? (
-          <ConversationView events={events} earlierAvailable={earlierAvailable} onLoadEarlier={loadEarlier} endedAt={session?.status === 'ended' ? session.lastActivity : null} />
+          <ConversationView events={events} earlierAvailable={earlierAvailable} onLoadEarlier={loadEarlier} onLoadAll={loadAll} endedAt={session?.status === 'ended' ? session.lastActivity : null} />
         ) : (
           <ActivityFeed events={events} earlierAvailable={earlierAvailable} onLoadEarlier={loadEarlier} />
         )}

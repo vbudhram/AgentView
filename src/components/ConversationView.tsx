@@ -181,9 +181,10 @@ function Item({ e }: { e: AgentEvent }) {
 }
 
 // Render only the tail of long transcripts: a 70k-event session must not
-// freeze the tab. "Show earlier" reveals older events in chunks.
+// freeze the tab. "Show earlier" reveals older events in chunks big enough
+// that a 24k-event session takes taps in the dozens, not the hundreds.
 const WINDOW = 250;
-const CHUNK = 250;
+const CHUNK = 1000;
 
 // A gap this long between messages earns a time divider.
 const DIVIDER_GAP_MS = 30 * 60 * 1000;
@@ -213,12 +214,14 @@ function relAgo(iso: string, nowMs: number): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, endedAt = null }: {
+export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, onLoadAll, endedAt = null }: {
   events: AgentEvent[];
   // events the server holds before the loaded tail; tapping "show earlier"
   // near the buffer's start asks the parent to widen the tail
   earlierAvailable?: number;
   onLoadEarlier?: () => void;
+  // "jump to start" needs the whole transcript client-side
+  onLoadAll?: () => void;
   // set when the session is over: renders the end-of-transcript marker
   endedAt?: string | null;
 }) {
@@ -231,6 +234,9 @@ export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, 
     const id = setInterval(() => setNowMs(Date.now()), 30000);
     return () => clearInterval(id);
   }, [endedAt]);
+  // 'end' anchors the window to the newest events (the default); 'start'
+  // anchors it to the beginning after a jump-to-start.
+  const [anchor, setAnchor] = useState<'end' | 'start'>('end');
   const earlierTap = useTapActivate(() => {
     const el = scrollRef.current;
     expandAnchor.current = el ? el.scrollHeight - el.scrollTop : null;
@@ -238,9 +244,11 @@ export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, 
     // prefetch from the server before the local buffer runs out
     if (start <= CHUNK && earlierAvailable > 0) onLoadEarlier?.();
   });
-  // The window is anchored to the end, so live events never shift older rows.
-  const start = Math.max(0, visible.length - shown);
-  const windowed = visible.slice(start);
+  const laterTap = useTapActivate(() => setShown((n) => n + CHUNK));
+  // The end window never shifts older rows when live events arrive.
+  const start = anchor === 'end' ? Math.max(0, visible.length - shown) : 0;
+  const windowed = anchor === 'end' ? visible.slice(start) : visible.slice(0, shown);
+  const laterHidden = anchor === 'start' ? Math.max(0, visible.length - shown) : 0;
   // items already present at mount render statically; only later items animate in
   const initial = useRef(visible.length);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -260,17 +268,53 @@ export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, 
     if (delta > 0 && !stickRef.current) setNewCount((n) => n + delta);
   }, [visible.length]);
   const jumpToLatest = () => {
+    if (anchor === 'start') { setAnchor('end'); setShown(WINDOW); }
     stickRef.current = true;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
     setDetached(false);
     setNewCount(0);
   };
+  // Jump to start: load the full transcript, flip the anchor, land at the top.
+  const pendingStart = useRef(false);
+  const startTap = useTapActivate(() => {
+    if (earlierAvailable > 0) onLoadAll?.();
+    pendingStart.current = true;
+    stickRef.current = false;
+    setDetached(true);
+    setAnchor('start');
+    setShown(WINDOW);
+  });
+  // Prev/next landmark: the owner's own rendered messages.
+  const jumpUser = (dir: -1 | 1) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const contTop = el.getBoundingClientRect().top;
+    const nodes = Array.from(el.querySelectorAll<HTMLElement>('.msg-user'))
+      .map((n) => ({ n, y: n.getBoundingClientRect().top - contTop + el.scrollTop }));
+    let target: number | null = null;
+    if (dir === -1) {
+      for (const { y } of nodes) { if (y < el.scrollTop - 8) target = y; else break; }
+    } else {
+      for (const { y } of nodes) { if (y > el.scrollTop + 8) { target = y; break; } }
+    }
+    if (target == null) return;
+    stickRef.current = false;
+    el.scrollTo({ top: Math.max(0, target - 8), behavior: 'smooth' });
+  };
+  const prevUserTap = useTapActivate(() => jumpUser(-1));
+  const nextUserTap = useTapActivate(() => jumpUser(1));
 
   // layout effect: the first bottom-anchor lands before paint (no top flash)
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    if (pendingStart.current) {
+      // hold the top until the full transcript has arrived
+      el.scrollTop = 0;
+      if (earlierAvailable === 0) pendingStart.current = false;
+      return;
+    }
     if (expandAnchor.current != null) {
       // keep the reader's place while earlier events mount above
       el.scrollTop = el.scrollHeight - expandAnchor.current;
@@ -281,7 +325,7 @@ export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, 
     if (firstScroll.current) el.scrollTop = el.scrollHeight;
     else el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     firstScroll.current = false;
-  }, [windowed.length, start]);
+  }, [windowed.length, start, anchor, earlierAvailable]);
 
   return (
     <div style={{ position: 'relative', height: '100%' }}>
@@ -308,10 +352,15 @@ export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, 
               no conversation events yet
             </div>
           )}
-          {(start > 0 || earlierAvailable > 0) && (
-            <button className="show-earlier-btn" {...earlierTap}>
-              ▲ show earlier ({(start + earlierAvailable).toLocaleString()} more)
-            </button>
+          {anchor === 'end' && (start > 0 || earlierAvailable > 0) && (
+            <div className="earlier-row">
+              <button className="show-earlier-btn" {...earlierTap}>
+                ▲ show earlier ({(start + earlierAvailable).toLocaleString()} more)
+              </button>
+              <button className="show-earlier-btn jump-start-btn" {...startTap}>
+                ⇤ start
+              </button>
+            </div>
           )}
           {windowed.map((e, i) => {
             const prev = i > 0 ? windowed[i - 1] : null;
@@ -329,14 +378,19 @@ export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, 
               </motion.div>
             );
           })}
-          {endedAt && (
+          {laterHidden > 0 && (
+            <button className="show-earlier-btn" {...laterTap}>
+              ▼ show later ({laterHidden.toLocaleString()} more)
+            </button>
+          )}
+          {endedAt && laterHidden === 0 && (
             <div className="conv-ended" title={new Date(endedAt).toLocaleString()}>
               ■ session ended · {relAgo(endedAt, nowMs)}
             </div>
           )}
         </div>
       </div>
-      {detached && (
+      {(detached || anchor === 'start') && (
         <button
           className={`jump-pill${newCount > 0 ? ' fresh' : ''}`}
           onClick={jumpToLatest}
@@ -345,6 +399,10 @@ export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, 
           ↓ latest{newCount > 0 ? <span className="jump-count">{newCount > 99 ? '99+' : newCount}</span> : null}
         </button>
       )}
+      <div className="msg-nav" aria-label="jump between your messages">
+        <button {...prevUserTap} aria-label="previous message from you" title="previous YOU message">▲❯</button>
+        <button {...nextUserTap} aria-label="next message from you" title="next YOU message">▼❯</button>
+      </div>
     </div>
   );
 }

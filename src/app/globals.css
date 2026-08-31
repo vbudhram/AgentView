@@ -739,6 +739,32 @@ html, body {
 }
 
 /* "show earlier" expander atop windowed transcripts */
+/* "show earlier" and "jump to start" share one row at the top of the tail */
+.earlier-row { display: flex; gap: 8px; }
+.earlier-row .show-earlier-btn { flex: 1; min-width: 0; }
+.jump-start-btn { flex: 0 0 auto; white-space: nowrap; }
+/* prev/next landmark jumps: the owner's own messages */
+.msg-nav {
+  position: absolute;
+  right: 10px;
+  bottom: 14px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.msg-nav button {
+  min-width: 40px;
+  min-height: 34px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: rgba(10, 13, 11, 0.94);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
 .show-earlier-btn {
   display: block;
   width: 100%;
