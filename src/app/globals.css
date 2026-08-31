@@ -19,6 +19,8 @@
   --idle: #6b7280;
   --ended: #454e47;
   --cyan: #67e8f9;
+  --claude-mark: #d97757; /* Claude coral */
+  --codex-mark: #d9e2da;  /* OpenAI mark, light on the dark ground */
   --sel-bg: rgba(74, 222, 128, 0.07);
   --font-display: 'Chakra Petch', 'Avenir Next Condensed', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;

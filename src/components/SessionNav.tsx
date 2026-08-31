@@ -6,6 +6,7 @@ import { personaFor, accentSoft, type Persona } from '@/lib/persona';
 import { useIsMobile, useTapActivate } from '@/lib/mobile';
 import { demoteMutedAlarms, isAlarm, isMuted, useMuteVersion } from '@/lib/mute';
 import { AgentAvatar } from './AgentAvatar';
+import { AgentLogo } from './AgentLogo';
 
 // Minutes granularity below 2h keeps neighboring rows distinguishable.
 function rel(iso: string, now: number): string {
@@ -33,21 +34,8 @@ function projectLabel(cwd: string | null, dups: Set<string>): string {
   return parts.length >= 2 ? `${parts[parts.length - 2]}/${folder}` : folder;
 }
 
-function AgentBadge({ agent }: { agent: SessionSummary['agent'] }) {
-  const claude = agent === 'claude';
-  return (
-    <span
-      style={{
-        fontSize: 'var(--fs-badge)', fontWeight: 600, letterSpacing: '0.06em', lineHeight: '15px',
-        padding: '0 4px', borderRadius: 3, flexShrink: 0,
-        color: claude ? 'var(--green)' : 'var(--cyan)',
-        border: `1px solid ${claude ? 'var(--green-dim)' : 'rgba(103,232,249,0.35)'}`,
-        background: claude ? 'rgba(74,222,128,0.08)' : 'rgba(103,232,249,0.07)',
-      }}
-    >
-      {claude ? 'CL' : 'CX'}
-    </span>
-  );
+function AgentBadge({ agent, mobile }: { agent: SessionSummary['agent']; mobile: boolean }) {
+  return <AgentLogo agent={agent} size={mobile ? 15 : 13} />;
 }
 
 function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, muted, flash }: {
@@ -161,7 +149,7 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, mut
           }}>
             {persona.name}
           </span>
-          {showAgent && <AgentBadge agent={s.agent} />}
+          {showAgent && <AgentBadge agent={s.agent} mobile={mobile} />}
           {s.steerable && (
             <span
               title={s.wrapperOutdated ? 'wrapper outdated — restart this session to upgrade the mirror' : 'steerable'}
@@ -279,7 +267,6 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
   const recent = visible.filter((s) => s.status === 'ended');
 
   // The agent badge distinguishes nothing when the whole fleet is one agent.
-  const mixedAgents = new Set(visible.map((s) => s.agent)).size > 1;
 
   // folder names that appear on more than one visible row
   const dups = useMemo(() => {
@@ -352,7 +339,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
         <Row
           key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
           selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups}
-          showAgent={mixedAgents} mobile={mobile}
+          showAgent mobile={mobile}
           muted={isMuted(s.key, s.lastActivity)} flash={s.key === flashKey}
         />
       ))}
@@ -364,7 +351,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
         <Row
           key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
           selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups}
-          showAgent={mixedAgents} mobile={mobile}
+          showAgent mobile={mobile}
           muted={isMuted(s.key, s.lastActivity)} flash={s.key === flashKey}
         />
       ))}
