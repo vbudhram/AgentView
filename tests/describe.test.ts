@@ -57,3 +57,42 @@ describe('classifySystemNote', () => {
     expect(classifySystemNote('here is the error I saw')).toBeNull();
   });
 });
+
+import { describeToolCall, describeToolResult, shortenPaths } from '../src/lib/describe';
+
+describe('describeToolCall', () => {
+  it('prefers the Bash description over the raw command', () => {
+    expect(describeToolCall('Bash', JSON.stringify({ command: 'S=/tmp/x node run.mjs', description: 'Run the loop driver' })))
+      .toBe('Bash: Run the loop driver');
+  });
+
+  it('strips leading env assignments and cd prefixes from commands', () => {
+    expect(describeToolCall('Bash', JSON.stringify({ command: 'S=/private/tmp/claude-501/-Users-vi FOO="a b" node bin/av.mjs claude' })))
+      .toBe('Bash: node bin/av.mjs claude');
+    expect(describeToolCall('Bash', JSON.stringify({ command: 'cd /Users/x/repo && S=1 npm test' })))
+      .toBe('Bash: npm test');
+  });
+});
+
+describe('describeToolResult', () => {
+  it('reports shape and basenames the first line', () => {
+    expect(describeToolResult('The file /Users/vijaybudham/Desktop/working/agentview/src/lib/store.ts has been updated\nmore\nmore'))
+      .toBe('3 lines · The file store.ts has been updated');
+  });
+
+  it('handles empty, single-line, and error outputs', () => {
+    expect(describeToolResult('   ')).toBe('(empty)');
+    expect(describeToolResult('ok')).toBe('ok');
+    expect(describeToolResult('boom\ntrace', true)).toBe('error · 2 lines · boom');
+  });
+
+  it('reports size for one huge line', () => {
+    expect(describeToolResult('x'.repeat(2048))).toMatch(/^2\.0KB · x+…$/);
+  });
+});
+
+describe('shortenPaths', () => {
+  it('keeps relative paths and bare words alone', () => {
+    expect(shortenPaths('src/lib/store.ts and a/b')).toBe('src/lib/store.ts and a/b');
+  });
+});

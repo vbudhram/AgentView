@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentEvent } from '@/lib/ui-types';
-import { classifySystemNote, describeToolCall, prettyToolInput, shortToolName, stripAnsi, type SystemNote } from '@/lib/describe';
+import { classifySystemNote, describeToolCall, prettyToolInput, shortToolName, shortenPaths, stripAnsi, type SystemNote } from '@/lib/describe';
 import { useTapActivate } from '@/lib/mobile';
 
 // GFM (tables, autolinked URLs, strikethrough) plus theme-fitting renderers:
@@ -41,7 +41,7 @@ function toolResultSummary(output: string, isError: boolean): { label: string; d
   const trimmed = output.trim();
   if (!trimmed) return { label: isError ? 'error' : 'result', detail: '(empty)' };
   const lines = trimmed.split('\n');
-  const first = lines[0].replace(/\s+/g, ' ').trim();
+  const first = shortenPaths(lines[0]).replace(/\s+/g, ' ').trim();
   const firstCut = first.length > 80 ? `${first.slice(0, 80)}…` : first;
   const label = isError ? 'error' : lines.length > 1 ? `${lines.length} lines` : 'result';
   return { label, detail: firstCut };

@@ -2,7 +2,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import type { AgentEvent } from '@/lib/ui-types';
-import { describeToolCall, plainText, stripAnsi } from '@/lib/describe';
+import { describeToolCall, describeToolResult, plainText } from '@/lib/describe';
 
 const CLIP = 140;
 
@@ -29,9 +29,10 @@ function row(e: AgentEvent): { glyph: string; color: string; text: string; raw?:
       // humanized summary; the raw payload survives on hover
       return { glyph: '⚙', color: 'var(--cyan)', text: describeToolCall(e.name, e.input), raw: `${e.name} ${e.input.slice(0, 800)}` };
     case 'tool_result':
+      // shape summary + basenamed first line beats raw leading characters
       return e.isError
-        ? { glyph: '✗', color: 'var(--red)', text: stripAnsi(e.output.slice(0, CLIP * 4)).slice(0, CLIP) }
-        : { glyph: '✓', color: 'var(--green-deep)', text: stripAnsi(e.output.slice(0, CLIP * 4)).slice(0, CLIP) };
+        ? { glyph: '✗', color: 'var(--red)', text: describeToolResult(e.output, true) }
+        : { glyph: '✓', color: 'var(--green-deep)', text: describeToolResult(e.output) };
     case 'turn_status':
       return { glyph: '—', color: 'var(--text-faint)', text: `turn ${e.status}` };
   }

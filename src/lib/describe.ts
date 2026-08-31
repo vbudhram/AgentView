@@ -12,10 +12,22 @@ export function shortToolName(name: string): string {
   return last || name;
 }
 
-// A leading "cd /abs/path && " spends the whole line on the path; the command
-// after it is the part that matters.
-function stripCdPrefix(cmd: string): string {
-  return cmd.replace(/^cd\s+(?:'[^']*'|"[^"]*"|\S+)\s*&&\s*/, '');
+// Leading "cd /abs/path && " and env assignments (S=/long/path node x) spend
+// the whole visible line on boilerplate; the command after them matters.
+function stripCmdBoilerplate(cmd: string): string {
+  let c = cmd.trimStart();
+  for (;;) {
+    const env = /^[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|\S*)\s+/.exec(c);
+    if (env) { c = c.slice(env[0].length); continue; }
+    const cd = /^cd\s+(?:'[^']*'|"[^"]*"|\S+)\s*&&\s*/.exec(c);
+    if (cd) { c = c.slice(cd[0].length); continue; }
+    return c;
+  }
+}
+
+// Absolute paths eat the visible chars; the basename carries the meaning.
+export function shortenPaths(s: string): string {
+  return s.replace(/(?:^|(?<=[\s('"`=:]))\/(?:[\w.@+-]+\/)+([\w.@+-]+\/?)/g, '$1');
 }
 
 // Terminal escape sequences (colors, cursor moves, OSC titles) are noise in a
@@ -66,7 +78,13 @@ export function describeToolCall(name: string, input: string): string {
     const t = input.trim();
     return t && !t.startsWith('{') ? `${n}: ${excerpt(t, 60)}` : n;
   }
-  if (typeof obj.command === 'string') return `${n}: ${excerpt(stripCdPrefix(obj.command), 60)}`;
+  // Bash: the human-written description beats the raw command line.
+  if (typeof obj.command === 'string') {
+    if (typeof obj.description === 'string' && obj.description.trim()) {
+      return `${n}: ${excerpt(obj.description, 60)}`;
+    }
+    return `${n}: ${excerpt(stripCmdBoilerplate(obj.command), 60)}`;
+  }
   for (const k of ['file_path', 'notebook_path', 'path']) {
     const v = obj[k];
     if (typeof v === 'string') return `${n}: ${v.split('/').pop()}`;
@@ -112,4 +130,17 @@ function noteSummary(t: string): string {
   const sm = /<summary>([\s\S]*?)<\/summary>/.exec(t);
   const src = sm ? sm[1] : t;
   return excerpt(src.replace(/<[^>\n]{1,120}>/g, ' '), 120);
+}
+
+// One-line result summary: shape first ("14 lines"), then a first line with
+// absolute paths reduced to basenames — never a run of path characters.
+export function describeToolResult(output: string, isError = false): string {
+  const t = stripAnsi(output).trim();
+  if (!t) return '(empty)';
+  const lines = t.split('\n');
+  const first = excerpt(shortenPaths(lines[0]), 70);
+  const prefix = isError ? 'error · ' : '';
+  if (lines.length > 1) return `${prefix}${lines.length} lines · ${first}`;
+  if (t.length > 200) return `${prefix}${(t.length / 1024).toFixed(1)}KB · ${first}`;
+  return `${prefix}${first}`;
 }
