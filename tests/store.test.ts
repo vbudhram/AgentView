@@ -34,6 +34,57 @@ describe('SessionStore', () => {
     expect(s.summaries(later)[0].status).toBe('blocked');
   });
 
+  it('surfaces an ask within the short settle window, not after 30s', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', {
+      events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: 'Do you prefer red or blue?' }],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
+    });
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
+    // still settling at +3s: no flap yet
+    expect(s.summaries(new Date('2026-08-26T10:00:03Z'))[0].status).toBe('working');
+    // at +6s the ask is live -- no 30s wait
+    expect(s.summaries(new Date('2026-08-26T10:00:06Z'))[0].status).toBe('needs_input');
+  });
+
+  it('does not alarm when a tool call follows the assistant message moments later', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', {
+      events: [
+        { kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: 'Should I run the tests?' },
+        { kind: 'tool_call', ts: '2026-08-26T10:00:02Z', name: 'Bash', input: '{}' },
+      ],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
+    });
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
+    // mid-stream tool activity keeps the full recency window: working, no alarm
+    expect(s.summaries(new Date('2026-08-26T10:00:06Z'))[0].status).toBe('working');
+    expect(s.summaries(new Date('2026-08-26T10:00:20Z'))[0].status).toBe('working');
+  });
+
+  it('clears the alarm within the settle window after the agent resumes and finishes', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', {
+      events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: 'Red or blue?' }],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
+    });
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
+    expect(s.summaries(new Date('2026-08-26T10:00:06Z'))[0].status).toBe('needs_input');
+    // the user answered; the agent acknowledged with a statement
+    s.apply('claude', 'f1', { events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:30Z', text: 'acknowledged' }] });
+    expect(s.summaries(new Date('2026-08-26T10:00:36Z'))[0].status).toBe('waiting');
+  });
+
+  it('ended detection is not delayed by the settle window', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', {
+      events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: 'done' }],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
+    });
+    // no live process -> ended as soon as the settle window passes
+    expect(s.summaries(new Date('2026-08-26T10:00:06Z'))[0].status).toBe('ended');
+  });
+
   it('drops sessions older than 24h from summaries', () => {
     const s = new SessionStore();
     s.apply('claude', 'old', at('2026-08-24T10:00:00Z', 'x'));

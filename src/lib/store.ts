@@ -4,6 +4,10 @@ import { describeToolCall } from './describe';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WORKING_MS = 30 * 1000;
+// After a turn-ending event (assistant_message, or turn_status completed) the
+// classification is definite; a short settle absorbs an immediate follow-up
+// tool call without a flap, then the ask (or the calm waiting) surfaces.
+const SETTLE_MS = 5 * 1000;
 // A steerable session with a pending tool and a dead spinner this long is
 // almost certainly sitting at a permission prompt.
 const APPROVAL_ESCALATE_MS = 90 * 1000;
@@ -191,11 +195,16 @@ export class SessionStore extends EventEmitter {
       const alive = !!home && liveN > 0
         && (stampsByHome.get(home)?.indexOf(rec.lastActivity) ?? Infinity) < liveN;
       const lastMsg = [...rec.events].reverse().find((e) => e.kind === 'assistant_message');
+      const turnEnded = last?.kind === 'assistant_message'
+        || (last?.kind === 'turn_status' && last.status === 'completed');
       let status: SessionStatus;
-      if (age <= WORKING_MS) status = 'working';
+      // The full recency window only covers genuine mid-stream activity
+      // (tool calls, results). A turn-ending event settles in seconds, so an
+      // ask does not hide behind 30s of phantom "working".
+      if (age <= (turnEnded ? SETTLE_MS : WORKING_MS)) status = 'working';
       else if (!alive) status = 'ended';
       else if (last?.kind === 'tool_call') status = 'blocked';
-      else if (last?.kind === 'assistant_message' || (last?.kind === 'turn_status' && last.status === 'completed')) {
+      else if (turnEnded) {
         // The alarm tier is earned only by an actual ask. A turn that ends on
         // a statement is a calm "waiting", not a NEEDS YOU.
         status = lastMsg?.kind === 'assistant_message' && asksQuestion(lastMsg.text) ? 'needs_input' : 'waiting';
