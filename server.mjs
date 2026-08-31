@@ -97,6 +97,9 @@ const onUpgrade = (req, socket, head) => {
     // A clean redraw from the VT screen model, never raw scrollback that can
     // start mid-escape-sequence.
     ws.send(bridge.snapshot());
+    // An empty model would render as silence; say so instead (old wrappers
+    // do not replay their pre-connect screen).
+    if (bridge.scrollback().length === 0) ws.send(JSON.stringify({ t: 'no_output' }));
     const unsub = bridge.onData((d) => { if (ws.readyState === ws.OPEN) ws.send(d); });
     const unsubResize = bridge.onResize(({ cols, rows }) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'size', cols, rows }));

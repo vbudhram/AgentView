@@ -86,6 +86,9 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
   // new output lands while detached.
   const [detached, setDetached] = useState(false);
   const [hasNew, setHasNew] = useState(false);
+  // The mirror holds no output at all (screen drawn before the link came
+  // up); rendering silence looks broken — say it instead.
+  const [noOutput, setNoOutput] = useState(false);
 
   const pinToBottom = () => {
     const el = scrollRef.current;
@@ -170,7 +173,7 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
         ws = new WebSocket(`${proto}://${location.host}/ws/term?key=${encodeURIComponent(sessionKey)}`);
         wsRef.current = ws;
         ws.binaryType = 'arraybuffer';
-        ws.onopen = () => { if (!disposed) setLink('live'); };
+        ws.onopen = () => { if (!disposed) { setLink('live'); setNoOutput(false); } };
         ws.onmessage = (m) => {
           // Server text frames carry control JSON; binary frames carry PTY bytes.
           if (typeof m.data === 'string') {
@@ -179,6 +182,8 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
               if (msg?.t === 'size' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
                 term?.resize(msg.cols, msg.rows);
                 requestAnimationFrame(() => { rescale(); pinToBottom(); });
+              } else if (msg?.t === 'no_output') {
+                setNoOutput(true);
               } else if (msg?.t === 'write_failed') {
                 // The server could not reach the wrapper. The compose may
                 // already be cleared; put the text back so retry is one tap.
@@ -192,6 +197,7 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
             return;
           }
           term?.write(new Uint8Array(m.data as ArrayBuffer), pinToBottom);
+          setNoOutput(false); // real bytes arrived; the mirror is honest again
           if (!pinned.current) setHasNew(true);
         };
         ws.onclose = (e) => {
@@ -288,6 +294,16 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
             <div ref={ref} style={{ width: 'max-content' }} />
           </div>
         </div>
+        {noOutput && link === 'live' && (
+          <div className="term-empty-note" role="status">
+            <div style={{ color: 'var(--text)' }}>no terminal output yet</div>
+            <div>
+              The screen was drawn before the mirror connected. New output
+              will appear here live; the agent's question is in the
+              Conversation tab.
+            </div>
+          </div>
+        )}
         {detached && (
           <button className={`jump-pill${hasNew ? ' fresh' : ''}`} onClick={jumpToLatest} aria-label="jump to latest output">
             ↓ latest{hasNew ? <span className="jump-dot" aria-label="new output" /> : null}

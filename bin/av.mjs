@@ -52,21 +52,26 @@ pty.onExit(({ exitCode }) => { restore(); process.exit(exitCode); });
 // Bridge connection — best effort; the wrapper works without the app running.
 const sockPath = join(homedir(), '.agentview', 'bridge.sock');
 let sock = null;
-// Frames produced while the socket is down queue here (bounded) and flush on
-// reconnect, so a blip does not leave a hole in the mirror's byte stream.
-const QUEUE_MAX = 32 * 1024;
-let queue = [];
-let queueSize = 0;
-function send(msg) {
-  const line = JSON.stringify(msg) + '\n';
-  if (sock) { sock.write(line); return; }
-  queue.push(line);
-  queueSize += line.length;
-  // overflow: drop the oldest frames; the CLI's next repaint restores the
-  // screen model, so losing the head of a long blip is safe
-  while (queueSize > QUEUE_MAX && queue.length > 1) {
-    queueSize -= queue.shift().length;
+// Everything the PTY printed (bounded), replayed on every (re)connect. The
+// server builds a fresh screen model per connection; without a replay, an
+// agent that painted its screen BEFORE the link came up (an idle CLI asks
+// once and goes quiet) mirrors as a blank terminal.
+const REPLAY_MAX = 64 * 1024;
+let replay = [];
+let replaySize = 0;
+function remember(buf) {
+  replay.push(buf);
+  replaySize += buf.length;
+  // overflow: drop the oldest chunks; the screen model recovers from a
+  // mid-sequence cut the same way it does from raw scrollback
+  while (replaySize > REPLAY_MAX && replay.length > 1) {
+    replaySize -= replay.shift().length;
   }
+}
+function send(msg) {
+  // Frames while the link is down are not queued: the replay buffer
+  // carries the output, and hello re-reports the current size.
+  if (sock) sock.write(JSON.stringify(msg) + '\n');
 }
 function connect() {
   const s = createConnection(sockPath);
@@ -77,9 +82,11 @@ function connect() {
       cols: pty.cols, rows: pty.rows,
       v: PROTOCOL_VERSION,
     }) + '\n');
-    for (const line of queue) s.write(line);
-    queue = [];
-    queueSize = 0;
+    if (replaySize > 0) {
+      s.write(JSON.stringify({
+        t: 'replay', d: Buffer.concat(replay).toString('base64'),
+      }) + '\n');
+    }
   });
   let buf = '';
   s.on('data', (chunk) => {
@@ -99,5 +106,7 @@ function connect() {
 }
 connect();
 pty.onData((d) => {
-  send({ t: 'out', d: Buffer.from(d).toString('base64') });
+  const buf = Buffer.from(d);
+  remember(buf);
+  send({ t: 'out', d: buf.toString('base64') });
 });

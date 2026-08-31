@@ -478,3 +478,25 @@ describe('BridgeServer zombie-wrapper pairing', () => {
     await server.close();
   });
 });
+
+describe('BridgeServer replay frames', () => {
+  it('seeds the screen model from a wrapper replay after hello', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 21 }) + '\n');
+    client.write(JSON.stringify({ t: 'replay', d: Buffer.from('screen drawn before link').toString('base64') }) + '\n');
+    await wait(200);
+
+    const bridge = server.get('claude:21')!;
+    expect(bridge.scrollback().toString()).toBe('screen drawn before link');
+    expect(bridge.snapshot().toString()).toContain('screen drawn before link');
+
+    client.end();
+    await server.close();
+  });
+});

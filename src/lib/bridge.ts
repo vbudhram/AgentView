@@ -195,7 +195,10 @@ export class BridgeServer extends EventEmitter {
             if (key) this.store.setSpinner(key, text);
           });
           this.pairAll();
-        } else if (msg.t === 'out' && bridge && typeof msg.d === 'string') {
+        } else if ((msg.t === 'out' || msg.t === 'replay') && bridge && typeof msg.d === 'string') {
+          // 'replay' is the wrapper's retained output from before this
+          // connection; it seeds the fresh screen model so an agent that
+          // painted before the link came up does not mirror as blank.
           bridge.pushOutput(Buffer.from(msg.d, 'base64'));
         } else if (msg.t === 'resize' && bridge && isValidSize(msg.cols, msg.rows)) {
           bridge.setSize(msg.cols, msg.rows);
