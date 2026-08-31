@@ -4,7 +4,8 @@ import { MotionConfig } from 'motion/react';
 import type { AgentEvent, SessionSummary, SourceKind } from '@/lib/ui-types';
 import { personaFor, resolvePersonas } from '@/lib/persona';
 import { useIsMobile, useVisualViewportVar } from '@/lib/mobile';
-import { demoteMutedAlarms, isAlarm, isMuted, useMuteVersion } from '@/lib/mute';
+import { isAlarm, isMuted, useMuteVersion } from '@/lib/mute';
+import { useStableSessionOrder } from '@/lib/stable-order';
 import { SessionNav } from './SessionNav';
 import { SessionPane } from './SessionPane';
 
@@ -98,15 +99,13 @@ export function Dashboard() {
     return () => { cancelled = true; clearInterval(poll); es.close(); };
   }, []);
 
-  // keyboard order matches the rendered order: Live group first, then Recent,
-  // with muted alarms demoted below unmuted ones exactly as the list draws them
+  // keyboard order matches the rendered order: the same stabilized order the
+  // nav draws (frozen against recency drift), Live group first, then Recent
   const muteVersion = useMuteVersion();
-  const visible = useMemo(() => {
-    const f = demoteMutedAlarms(sessions.filter((s) => filter === 'all' || s.source === filter));
-    return [...f.filter((s) => s.status !== 'ended'), ...f.filter((s) => s.status === 'ended')];
-    // muteVersion invalidates the order when an alarm is (un)acknowledged
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions, filter, muteVersion]);
+  const { visible: ordered } = useStableSessionOrder(sessions, filter);
+  const visible = useMemo(
+    () => [...ordered.filter((s) => s.status !== 'ended'), ...ordered.filter((s) => s.status === 'ended')],
+    [ordered]);
 
   // Codenames resolved against the current fleet, so collisions get epithets.
   const personas = useMemo(() => resolvePersonas(sessions.map((s) => s.key)), [sessions]);

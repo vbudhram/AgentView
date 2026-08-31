@@ -4,7 +4,8 @@ import { motion } from 'motion/react';
 import type { SessionSummary, SourceKind } from '@/lib/ui-types';
 import { personaFor, accentSoft, type Persona } from '@/lib/persona';
 import { useIsMobile, useTapActivate } from '@/lib/mobile';
-import { demoteMutedAlarms, isAlarm, isMuted, useMuteVersion } from '@/lib/mute';
+import { isAlarm, isMuted } from '@/lib/mute';
+import { useStableSessionOrder } from '@/lib/stable-order';
 import { AgentAvatar } from './AgentAvatar';
 import { AgentLogo } from './AgentLogo';
 
@@ -21,6 +22,9 @@ function rel(iso: string, now: number): string {
 
 // A pending tool this old gets a quiet "may need approval" note — no alarm.
 const APPROVAL_HINT_MIN = 10;
+
+// Row taps this soon after a real reorder are aimed at the OLD layout.
+const TAP_GUARD_MS = 400;
 
 function folderOf(cwd: string | null): string {
   return cwd ? cwd.split('/').filter(Boolean).pop() ?? '?' : '?';
@@ -231,7 +235,6 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
     return () => clearInterval(t);
   }, []);
   const mobile = useIsMobile();
-  useMuteVersion();
 
   // In-app radar: the needs-you count must live in the list header, because
   // a phone never shows the tab title or favicon. Unfiltered on purpose.
@@ -259,12 +262,18 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
   });
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
 
-  // One predicate feeds both the rows and the counts, so they cannot disagree.
-  // Muted alarms drop below unmuted ones: the top slot belongs to the unseen.
-  const visible = demoteMutedAlarms(
-    sessions.filter((s) => filter === 'all' || s.source === filter));
+  // Stabilized order: rows reorder only on a membership/band change, never
+  // on recency drift, so the list cannot move under an aiming finger.
+  const { visible, orderChangedAt } = useStableSessionOrder(sessions, filter);
   const live = visible.filter((s) => s.status !== 'ended');
   const recent = visible.filter((s) => s.status === 'ended');
+
+  // A tap that lands right as the rows DO jump must not open the position's
+  // new occupant; ignore activations inside the shuffle window.
+  const guardedSelect = (k: string) => {
+    if (Date.now() - orderChangedAt < TAP_GUARD_MS) return;
+    onSelect(k);
+  };
 
   // The agent badge distinguishes nothing when the whole fleet is one agent.
 
@@ -338,7 +347,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
       {live.map((s) => (
         <Row
           key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
-          selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups}
+          selected={s.key === selectedKey} onSelect={guardedSelect} now={now} dups={dups}
           showAgent mobile={mobile}
           muted={isMuted(s.key, s.lastActivity)} flash={s.key === flashKey}
         />
@@ -350,7 +359,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
       {recent.map((s) => (
         <Row
           key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
-          selected={s.key === selectedKey} onSelect={onSelect} now={now} dups={dups}
+          selected={s.key === selectedKey} onSelect={guardedSelect} now={now} dups={dups}
           showAgent mobile={mobile}
           muted={isMuted(s.key, s.lastActivity)} flash={s.key === flashKey}
         />
