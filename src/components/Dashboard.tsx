@@ -35,6 +35,15 @@ export function Dashboard() {
   });
   const [dragging, setDragging] = useState(false);
   const [liveEvents, setLiveEvents] = useState<Record<string, AgentEvent[]>>({});
+  // Freshness: when the last successful update landed, plus a slow tick to
+  // re-check it. A frozen tab must not look identical to a live one.
+  const [lastSyncMs, setLastSyncMs] = useState(() => Date.now());
+  const [staleTick, setStaleTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setStaleTick(Date.now()), 5000);
+    return () => clearInterval(t);
+  }, []);
+  const staleSecs = Math.round((Math.max(staleTick, lastSyncMs) - lastSyncMs) / 1000);
 
   // Phone model: full-screen list ⇄ full-screen detail, like a chat app.
   const isMobile = useIsMobile();
@@ -87,7 +96,12 @@ export function Dashboard() {
     const loadSnapshot = () =>
       fetch('/api/sessions', { cache: 'no-store' })
         .then((r) => r.json())
-        .then((d) => { if (!cancelled && Array.isArray(d.sessions)) setSessions(d.sessions); })
+        .then((d) => {
+          if (!cancelled && Array.isArray(d.sessions)) {
+            setSessions(d.sessions);
+            setLastSyncMs(Date.now());
+          }
+        })
         .catch(() => {});
     loadSnapshot();
 
@@ -95,14 +109,14 @@ export function Dashboard() {
     // session list as a fallback so the radar stays current regardless.
     const poll = setInterval(loadSnapshot, 4000);
 
-    const es = new EventSource('/api/stream');
-    es.onmessage = (m) => {
+    const onMessage = (m: MessageEvent) => {
       let d;
       try {
         d = JSON.parse(m.data);
       } catch {
         return; // ignore malformed frames
       }
+      setLastSyncMs(Date.now());
       if (d.type === 'sessions') setSessions(d.sessions);
       else if (d.type === 'events') {
         setLiveEvents((prev) => ({
@@ -111,7 +125,28 @@ export function Dashboard() {
         }));
       }
     };
-    return () => { cancelled = true; clearInterval(poll); es.close(); };
+    let es = new EventSource('/api/stream');
+    es.onmessage = onMessage;
+
+    // A phone that wakes from lock must not sit on pre-lock state for a full
+    // poll interval: refresh at once and revive the stream if it died.
+    const onVis = () => {
+      if (document.visibilityState !== 'visible') return;
+      loadSnapshot();
+      setStaleTick(Date.now());
+      if (es.readyState === EventSource.CLOSED) {
+        es.close();
+        es = new EventSource('/api/stream');
+        es.onmessage = onMessage;
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVis);
+      es.close();
+    };
   }, []);
 
   // keyboard order matches the rendered order: the same stabilized order the
@@ -181,6 +216,20 @@ export function Dashboard() {
       className={`app-shell${showDetail ? ' show-detail' : ''}`}
       style={{ ['--nav-w' as string]: `${navW}px` }}
     >
+      {staleSecs > 15 && (
+        <div
+          role="status"
+          style={{
+            position: 'fixed', top: 8, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 60, padding: '3px 10px', borderRadius: 999,
+            background: 'var(--amber, #fbbf24)', color: '#0a0d0b',
+            fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700,
+            letterSpacing: '0.04em', pointerEvents: 'none',
+          }}
+        >
+          stale — last update {staleSecs}s ago
+        </div>
+      )}
       <SessionNav
         sessions={sessions}
         personas={personas}
