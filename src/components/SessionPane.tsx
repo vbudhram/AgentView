@@ -247,7 +247,8 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
     return () => clearInterval(t);
   }, []);
   const longPending = session?.status === 'blocked'
-    && nowMs - new Date(session.lastActivity).getTime() >= APPROVAL_HINT_MIN * 60000;
+    && (session.approvalLikely
+      || nowMs - new Date(session.lastActivity).getTime() >= APPROVAL_HINT_MIN * 60000);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -378,7 +379,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
           {session.now && <span style={{ color: 'var(--green)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.now}</span>}
         </div>
       ) : null}
-      {session?.status === 'needs_input' && (
+      {(session?.status === 'needs_input' || session?.approvalLikely) && (
         <div className={`strip needs-strip${muted ? ' muted' : ' row-needs_input'}`}>
           <div className="needs-strip-row">
             <button
@@ -388,7 +389,8 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
               {...needsTap}
             >
               <span className={`needs-strip-line${needsOpen ? ' open' : ''}`}>
-                ⏸ needs you{session.now ? ` — ${session.now}` : ''}
+                {session.status === 'needs_input' ? '⏸ needs you' : '⏳ may need approval'}
+                {session.now ? ` — ${session.now}` : ''}
               </span>
             </button>
             <button
@@ -410,7 +412,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
           )}
         </div>
       )}
-      {session?.status === 'blocked' && !session.spinner && (
+      {session?.status === 'blocked' && !session.spinner && !session.approvalLikely && (
         <div className="strip" style={{ color: 'var(--cyan)', fontWeight: 600 }}>
           ⏳ {session.now ?? 'running a tool'} — {relDur(session.lastActivity, nowMs)}
           <span style={{ color: 'var(--text-dim)', fontWeight: 400, marginLeft: 8 }}>

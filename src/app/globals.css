@@ -425,7 +425,21 @@ html, body {
   .wrap-dismiss { min-height: 44px; }
 }
 
-/* acknowledged needs-you row in the list: quiet, out of the alarm count */
+/* calm turn-ended marker: visible, never shouting */
+.chip-waiting {
+  font-family: var(--font-display);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  line-height: 15px;
+  padding: 0 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+/* acknowledged alarm row in the list: quiet, out of the alarm count */
 .chip-muted {
   font-family: var(--font-display);
   font-size: 9.5px;
@@ -914,6 +928,7 @@ html, body {
   .chip-needs { font-size: 11px; line-height: 18px; }
   .chip-lg { font-size: 12px; line-height: 20px; }
   .chip-muted { font-size: 11px; line-height: 18px; }
+  .chip-waiting { font-size: 11px; line-height: 18px; }
 }
 
 /* banner-jump target: a short amber flash marks the first needs-you row */

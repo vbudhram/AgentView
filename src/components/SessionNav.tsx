@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import type { SessionSummary, SourceKind } from '@/lib/ui-types';
 import { personaFor, accentSoft, type Persona } from '@/lib/persona';
 import { useIsMobile, useTapActivate } from '@/lib/mobile';
-import { isMuted, useMuteVersion } from '@/lib/mute';
+import { demoteMutedAlarms, isAlarm, isMuted, useMuteVersion } from '@/lib/mute';
 import { AgentAvatar } from './AgentAvatar';
 
 // Minutes granularity below 2h keeps neighboring rows distinguishable.
@@ -62,19 +62,22 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, mut
     ? Math.floor((now - new Date(s.lastActivity).getTime()) / 60000) : 0;
   const longPending = pendingMin >= APPROVAL_HINT_MIN;
   // Attention rows are physically louder: bigger avatar, bigger name, big chip.
-  // A muted (acknowledged) needs-you row drops the alarm treatment entirely.
-  const attention = s.status === 'needs_input' && !muted;
+  // Alarms are a confirmed ask (needs_input) or a likely permission prompt
+  // (approvalLikely). A muted (acknowledged) alarm drops the treatment.
+  const alarm = isAlarm(s);
+  const attention = alarm && !muted;
   const rowClass = `${attention ? 'row-needs_input' : ''}${flash ? ' row-flash' : ''}`;
   const nowColor =
     s.status === 'working' ? 'var(--green-deep)' :
     s.status === 'needs_input' ? (muted ? 'var(--text-dim)' : 'var(--amber)') :
-    s.status === 'blocked' ? 'var(--cyan)' : 'var(--text-dim)';
+    s.status === 'blocked' ? (attention ? 'var(--amber)' : 'var(--cyan)') : 'var(--text-dim)';
   // arm's-length sizes on phones: nothing under 11px, names ≥14px
   const avatarSize = attention ? (mobile ? 40 : 36) : (mobile ? 32 : 28);
   const nameSize = mobile ? (attention ? 16 : ended ? 13 : 14) : (attention ? 14.5 : ended ? 11.5 : 12.5);
   const nowSize = mobile ? (attention ? 13 : 12) : (attention ? 12 : 10.5);
   const statusLabel =
-    s.status === 'blocked' ? 'running a tool' : s.status.replace('_', ' ');
+    s.status === 'blocked' ? (s.approvalLikely ? 'may need approval' : 'running a tool')
+      : s.status.replace('_', ' ');
   const ref = useRef<HTMLDivElement>(null);
   // Selection and focus are one system: selecting focuses the row and keeps
   // it fully in view; focusing (click, Tab) selects it.
@@ -119,14 +122,15 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, mut
             fontFamily: 'var(--font-display)', fontSize: nameSize, fontWeight: 700,
             letterSpacing: '0.02em', whiteSpace: 'nowrap', overflow: 'hidden',
             textOverflow: 'ellipsis', color: ended ? 'var(--text-dim)' : 'var(--text)',
-            // the project name is the WHERE: the branch gives way before it does,
+            // the project name is the WHERE: the branch gives way before it
+            // does (and disappears on alarm rows so the name keeps its room),
             // but a shown branch always keeps at least ~6 characters
             flexShrink: 0,
-            maxWidth: `calc(100% - ${attention ? 128 : s.status === 'needs_input' ? 100 : 46}px${s.gitBranch ? ' - 6ch' : ''})`,
+            maxWidth: `calc(100% - ${attention ? 118 : alarm ? 100 : 46}px${s.gitBranch && !attention ? ' - 6ch' : ''})`,
           }}>
             {project}
           </b>
-          {s.gitBranch && (
+          {s.gitBranch && !attention && (
             <span style={{
               fontSize: 'var(--fs-meta)', color: 'var(--text-dim)', overflow: 'hidden',
               textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: '6ch',
@@ -135,8 +139,13 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, mut
             </span>
           )}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-            {attention && <span className="chip-needs chip-lg">NEEDS YOU</span>}
-            {s.status === 'needs_input' && muted && <span className="chip-muted">muted</span>}
+            {attention && (
+              <span className="chip-needs chip-lg">
+                {s.status === 'needs_input' ? 'NEEDS YOU' : 'APPROVE?'}
+              </span>
+            )}
+            {alarm && muted && <span className="chip-muted">muted</span>}
+            {s.status === 'waiting' && <span className="chip-waiting">waiting</span>}
             <span style={{ fontSize: 'var(--fs-meta)', color: 'var(--text-faint)' }}>{rel(s.lastActivity, now)}</span>
           </span>
         </div>
@@ -192,7 +201,7 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, mut
               {s.status === 'working' ? '⚙ ' : s.status === 'blocked' ? '⏳ ' : ''}
               {s.now}
               {s.status === 'blocked' ? ` — ${rel(s.lastActivity, now)}` : ''}
-              {s.status === 'blocked' && longPending ? (
+              {s.status === 'blocked' && (longPending || s.approvalLikely) ? (
                 <span style={{ color: 'var(--text-dim)' }}> · may need approval</span>
               ) : null}
             </motion.div>
@@ -244,9 +253,10 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
 
   // In-app radar: the needs-you count must live in the list header, because
   // a phone never shows the tab title or favicon. Unfiltered on purpose.
+  // Counts real asks and likely permission prompts, never mere statements.
   // Acknowledged (muted) sessions leave the count so it can reach zero.
   const needs = sessions.filter(
-    (s) => s.status === 'needs_input' && !isMuted(s.key, s.lastActivity));
+    (s) => isAlarm(s) && !isMuted(s.key, s.lastActivity));
 
   // The banner is radar, not a duplicate of the list: it renders only while
   // the needs-you group (pinned to the top of the list) is scrolled away.
@@ -268,7 +278,9 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
 
   // One predicate feeds both the rows and the counts, so they cannot disagree.
-  const visible = sessions.filter((s) => filter === 'all' || s.source === filter);
+  // Muted alarms drop below unmuted ones: the top slot belongs to the unseen.
+  const visible = demoteMutedAlarms(
+    sessions.filter((s) => filter === 'all' || s.source === filter));
   const live = visible.filter((s) => s.status !== 'ended');
   const recent = visible.filter((s) => s.status === 'ended');
 

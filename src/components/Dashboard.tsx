@@ -4,7 +4,7 @@ import { MotionConfig } from 'motion/react';
 import type { AgentEvent, SessionSummary, SourceKind } from '@/lib/ui-types';
 import { personaFor, resolvePersonas } from '@/lib/persona';
 import { useIsMobile, useVisualViewportVar } from '@/lib/mobile';
-import { isMuted, useMuteVersion } from '@/lib/mute';
+import { demoteMutedAlarms, isAlarm, isMuted, useMuteVersion } from '@/lib/mute';
 import { SessionNav } from './SessionNav';
 import { SessionPane } from './SessionPane';
 
@@ -98,24 +98,29 @@ export function Dashboard() {
     return () => { cancelled = true; clearInterval(poll); es.close(); };
   }, []);
 
-  // keyboard order matches the rendered order: Live group first, then Recent
+  // keyboard order matches the rendered order: Live group first, then Recent,
+  // with muted alarms demoted below unmuted ones exactly as the list draws them
+  const muteVersion = useMuteVersion();
   const visible = useMemo(() => {
-    const f = sessions.filter((s) => filter === 'all' || s.source === filter);
+    const f = demoteMutedAlarms(sessions.filter((s) => filter === 'all' || s.source === filter));
     return [...f.filter((s) => s.status !== 'ended'), ...f.filter((s) => s.status === 'ended')];
-  }, [sessions, filter]);
+    // muteVersion invalidates the order when an alarm is (un)acknowledged
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions, filter, muteVersion]);
 
   // Codenames resolved against the current fleet, so collisions get epithets.
   const personas = useMemo(() => resolvePersonas(sessions.map((s) => s.key)), [sessions]);
 
   // Title + favicon radar: the needs-you count reaches the user before they
-  // ever focus this window. Only needs_input is a confirmed "needs you";
-  // a pending tool call is working state, so it counts as working. Muted
+  // ever focus this window. It counts confirmed asks (needs_input) and likely
+  // permission prompts (approvalLikely) — never mere statements (waiting) or
+  // a pending tool with a live spinner, which count as working. Muted
   // (acknowledged) sessions leave the count so it can reach zero.
-  const muteVersion = useMuteVersion();
   useEffect(() => {
     const needs = sessions.filter(
-      (s) => s.status === 'needs_input' && !isMuted(s.key, s.lastActivity));
-    const working = sessions.filter((s) => s.status === 'working' || s.status === 'blocked').length;
+      (s) => isAlarm(s) && !isMuted(s.key, s.lastActivity));
+    const working = sessions.filter(
+      (s) => s.status === 'working' || (s.status === 'blocked' && !s.approvalLikely)).length;
     document.title =
       needs.length === 1 ? `⚠ ${personas.get(needs[0].key)?.name ?? '1'} needs you — AgentView` :
       needs.length > 0 ? `⚠ ${needs.length} need you — AgentView` :

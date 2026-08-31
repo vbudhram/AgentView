@@ -76,7 +76,7 @@ export function AgentAvatar({ status, hue, size = 28 }: {
         </g>
       )}
 
-      {status === 'idle' && (
+      {(status === 'idle' || status === 'waiting') && (
         <g>
           <circle cx="12" cy="16.2" r="2.7" fill={accent} />
           <circle cx="20" cy="16.2" r="2.7" fill={accent} />
