@@ -161,7 +161,10 @@ export class BridgeServer extends EventEmitter {
   // same one pairAll would pick.
   private keyFor(bridge: BridgeImpl): string | null {
     const key = this.store.findKeyByAgentCwd(bridge.agent, bridge.cwd);
-    return key && this.pairs.get(key) === bridge.id ? key : null;
+    if (key && this.pairs.get(key) === bridge.id) return key;
+    // pre-transcript: the bridge's own boot session carries the spinner
+    const bootKey = `boot:${bridge.id}`;
+    return this.pairs.get(bootKey) === bridge.id ? bootKey : null;
   }
 
   private handle(socket: Socket): void {
@@ -226,6 +229,7 @@ export class BridgeServer extends EventEmitter {
         this.store.setSpinner(key, null);
         this.store.setSteerable(key, false);
         this.store.setWrapperOutdated(key, false);
+        this.store.removeBoot(key); // a boot row dies with its wrapper
       }
     }
     this.pairAll(); // let a surviving bridge claim the freed key
@@ -241,7 +245,26 @@ export class BridgeServer extends EventEmitter {
     for (const bridge of this.bridges.values()) {
       if (!bridge.live) continue;
       const key = this.store.findKeyByAgentCwd(bridge.agent, bridge.cwd);
-      if (!key) continue;
+      const bootKey = `boot:${bridge.id}`;
+      if (!key) {
+        // No transcript yet: surface the wrapper itself as a boot session
+        // so a startup prompt (trust folder, login) is answerable.
+        if (this.pairs.get(bootKey) !== bridge.id) {
+          // pair first: registerBoot emits, and the re-entrant pairAll must
+          // find this pairing settled
+          this.pairs.set(bootKey, bridge.id);
+          this.store.registerBoot(bootKey, bridge.agent, bridge.cwd);
+          this.store.setSteerable(bootKey, true);
+          this.store.setWrapperOutdated(bootKey, bridge.outdated);
+          if (bridge.spinner !== null) this.store.setSpinner(bootKey, bridge.spinner);
+        }
+        continue;
+      }
+      // the real transcript arrived: the boot placeholder retires
+      if (this.pairs.get(bootKey) === bridge.id) {
+        this.pairs.delete(bootKey);
+        this.store.removeBoot(bootKey);
+      }
       const arr = byKey.get(key);
       if (arr) arr.push(bridge);
       else byKey.set(key, [bridge]);

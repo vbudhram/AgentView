@@ -66,6 +66,21 @@ export function Dashboard() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
+  // A boot (pre-transcript) session retires the moment its transcript
+  // appears under a new key; follow the selection to the real session so
+  // an open terminal view survives the handoff.
+  const lastSelected = useRef<SessionSummary | null>(null);
+  useEffect(() => {
+    const cur = sessions.find((s) => s.key === selectedKey) ?? null;
+    if (cur) { lastSelected.current = cur; return; }
+    const prev = lastSelected.current;
+    if (prev && selectedKey === prev.key && prev.key.startsWith('boot:')) {
+      const heir = sessions.find(
+        (s) => s.steerable && s.agent === prev.agent && s.cwd === prev.cwd);
+      if (heir) { lastSelected.current = heir; setSelectedKey(heir.key); }
+    }
+  }, [sessions, selectedKey]);
+
   // initial snapshot, then live frames over SSE
   useEffect(() => {
     let cancelled = false;

@@ -43,6 +43,7 @@ interface SessionRec {
   steerable: boolean; wrapperOutdated: boolean; events: AgentEvent[]; gitBranch: string | null;
   spinner: string | null;
   spinnerClearedAt: number | null;  // when the live spinner last went null
+  boot?: boolean;  // bridge-only session: the wrapper is up, no transcript yet
 }
 
 // Head of a message: its first meaningful line, cut at a word boundary near 120
@@ -119,9 +120,34 @@ export class SessionStore extends EventEmitter {
     this.emit('events', { key, events: [] });
   }
 
+  // A fresh `av claude` writes no transcript until after its startup
+  // prompts, so the session's FIRST question would be invisible. The
+  // bridge registers a boot session from its hello alone; the row
+  // disappears when the real transcript appears or the wrapper dies.
+  registerBoot(key: string, agent: AgentKind, cwd: string): void {
+    if (this.sessions.has(key)) return;
+    this.sessions.set(key, {
+      agent, sessionId: null, cwd, source: 'terminal', title: null,
+      lastActivity: new Date().toISOString(), steerable: false,
+      wrapperOutdated: false, events: [], gitBranch: null,
+      spinner: null, spinnerClearedAt: null, boot: true,
+    });
+    this.emit('events', { key, events: [] });
+  }
+
+  removeBoot(key: string): void {
+    const rec = this.sessions.get(key);
+    if (rec?.boot) {
+      this.sessions.delete(key);
+      this.emit('events', { key, events: [] });
+    }
+  }
+
   findKeyByAgentCwd(agent: AgentKind, cwd: string): string | null {
     let best: { key: string; last: string } | null = null;
     for (const [key, rec] of this.sessions) {
+      // boot sessions are bridge-private placeholders, never a pairing target
+      if (rec.boot) continue;
       if (rec.agent === agent && rec.cwd === cwd && (!best || rec.lastActivity > best.last)) {
         best = { key, last: rec.lastActivity };
       }
@@ -146,6 +172,19 @@ export class SessionStore extends EventEmitter {
     for (const [key, rec] of this.sessions) {
       const age = now.getTime() - new Date(rec.lastActivity).getTime();
       if (age > DAY_MS) continue;
+      if (rec.boot) {
+        // Bridge-only session: the wrapper is up, the transcript is not.
+        // Its startup prompt lives only in the terminal; say so.
+        out.push({
+          key, agent: rec.agent, sessionId: null, cwd: rec.cwd, source: rec.source,
+          title: null, lastActivity: rec.lastActivity, status: 'waiting',
+          steerable: rec.steerable, wrapperOutdated: rec.wrapperOutdated,
+          eventCount: 0, approvalLikely: false, lastTool: null, gitBranch: null,
+          now: 'starting up — its first prompt shows only in the Terminal tab',
+          spinner: rec.spinner,
+        });
+        continue;
+      }
       const last = rec.events[rec.events.length - 1];
       const home = rec.cwd ? `${rec.agent}:${rec.cwd}` : null;
       const liveN = home ? this.aliveCounts.get(home) ?? 0 : 0;

@@ -500,3 +500,61 @@ describe('BridgeServer replay frames', () => {
     await server.close();
   });
 });
+
+describe('BridgeServer boot sessions (pre-transcript)', () => {
+  const hello = (pid: number, cwd = '/fresh') =>
+    JSON.stringify({ t: 'hello', agent: 'claude', cwd, pid }) + '\n';
+
+  it('surfaces a steerable boot session for a wrapper with no transcript', async () => {
+    const store = makeStore(); // holds only /p; the wrapper starts in /fresh
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(hello(31));
+    await wait(200);
+
+    const boot = store.summaries().find((s) => s.key === 'boot:claude:31');
+    expect(boot).toBeDefined();
+    expect(boot!.steerable).toBe(true);
+    expect(boot!.cwd).toBe('/fresh');
+    expect(boot!.status).toBe('waiting');
+    expect(boot!.now).toContain('starting up');
+    expect(server.forSessionKey('boot:claude:31')).toBeDefined();
+
+    client.end();
+    await wait(200);
+    // the boot row dies with its wrapper
+    expect(store.summaries().find((s) => s.key === 'boot:claude:31')).toBeUndefined();
+    await server.close();
+  });
+
+  it('retires the boot session when the real transcript appears', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(hello(32));
+    await wait(200);
+    expect(store.summaries().some((s) => s.key === 'boot:claude:32')).toBe(true);
+
+    // the trust prompt is answered; claude writes its transcript
+    store.apply('claude', 'f9', {
+      events: [{ kind: 'user_message', ts: new Date().toISOString(), text: 'hi' }],
+      meta: { sessionId: 'f9', cwd: '/fresh', source: 'terminal' },
+    });
+    await wait(100);
+
+    expect(store.summaries().some((s) => s.key === 'boot:claude:32')).toBe(false);
+    expect(server.forSessionKey('claude:f9')?.id).toBe('claude:32');
+    expect(store.summaries().find((s) => s.key === 'claude:f9')!.steerable).toBe(true);
+
+    client.end();
+    await server.close();
+  });
+});
