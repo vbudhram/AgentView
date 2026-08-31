@@ -314,6 +314,21 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
             overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {persona.name}
+            {session && (
+              <span style={{
+                color: session.status === 'ended' ? 'var(--text-faint)'
+                  : session.status === 'needs_input' ? 'var(--amber)'
+                  : session.status === 'working' ? 'var(--green-deep)' : 'var(--text-dim)',
+                fontWeight: 500,
+              }}>
+                {' · '}
+                {session.status === 'ended'
+                  ? `ended ${relDur(session.lastActivity, nowMs)} ago`
+                  : session.status === 'needs_input' ? 'needs you'
+                  : session.status === 'blocked' ? 'running a tool'
+                  : session.status}
+              </span>
+            )}
           </div>
         </div>
         {session?.steerable && session.wrapperOutdated && (
@@ -478,7 +493,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
         ) : snapshot === null ? (
           <LoadingSkeleton />
         ) : tab === 'conversation' ? (
-          <ConversationView events={events} earlierAvailable={earlierAvailable} onLoadEarlier={loadEarlier} />
+          <ConversationView events={events} earlierAvailable={earlierAvailable} onLoadEarlier={loadEarlier} endedAt={session?.status === 'ended' ? session.lastActivity : null} />
         ) : (
           <ActivityFeed events={events} earlierAvailable={earlierAvailable} onLoadEarlier={loadEarlier} />
         )}

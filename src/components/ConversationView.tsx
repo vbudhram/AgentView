@@ -185,15 +185,52 @@ function Item({ e }: { e: AgentEvent }) {
 const WINDOW = 250;
 const CHUNK = 250;
 
-export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier }: {
+// A gap this long between messages earns a time divider.
+const DIVIDER_GAP_MS = 30 * 60 * 1000;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function dividerLabel(ts: string): string | null {
+  const d = new Date(ts);
+  if (!(d.getTime() > 0)) return null;
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return d.toDateString() === new Date().toDateString()
+    ? hm : `${MONTHS[d.getMonth()]} ${d.getDate()} · ${hm}`;
+}
+
+function TimeDivider({ ts }: { ts: string }) {
+  const label = dividerLabel(ts);
+  if (!label) return null;
+  return <div className="time-divider"><span>{label}</span></div>;
+}
+
+function relAgo(iso: string, nowMs: number): string {
+  const s = Math.max(0, (nowMs - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return m % 60 && h < 4 ? `${h}h${m % 60}m ago` : `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, endedAt = null }: {
   events: AgentEvent[];
   // events the server holds before the loaded tail; tapping "show earlier"
   // near the buffer's start asks the parent to widen the tail
   earlierAvailable?: number;
   onLoadEarlier?: () => void;
+  // set when the session is over: renders the end-of-transcript marker
+  endedAt?: string | null;
 }) {
   const visible = events.filter((e) => e.kind !== 'turn_status');
   const [shown, setShown] = useState(WINDOW);
+  // keeps the "ended · Nm ago" marker honest while the view stays open
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!endedAt) return;
+    const id = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, [endedAt]);
   const earlierTap = useTapActivate(() => {
     const el = scrollRef.current;
     expandAnchor.current = el ? el.scrollHeight - el.scrollTop : null;
@@ -276,17 +313,27 @@ export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier }
               ▲ show earlier ({(start + earlierAvailable).toLocaleString()} more)
             </button>
           )}
-          {windowed.map((e, i) => (
-            <motion.div
-              key={start + i}
-              title={new Date(e.ts).toLocaleString()}
-              initial={start + i < initial.current ? false : { opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-            >
-              <Item e={e} />
-            </motion.div>
-          ))}
+          {windowed.map((e, i) => {
+            const prev = i > 0 ? windowed[i - 1] : null;
+            const gap = !prev || new Date(e.ts).getTime() - new Date(prev.ts).getTime() >= DIVIDER_GAP_MS;
+            return (
+              <motion.div
+                key={start + i}
+                title={new Date(e.ts).toLocaleString()}
+                initial={start + i < initial.current ? false : { opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+              >
+                {gap && <TimeDivider ts={e.ts} />}
+                <Item e={e} />
+              </motion.div>
+            );
+          })}
+          {endedAt && (
+            <div className="conv-ended" title={new Date(endedAt).toLocaleString()}>
+              ■ session ended · {relAgo(endedAt, nowMs)}
+            </div>
+          )}
         </div>
       </div>
       {detached && (

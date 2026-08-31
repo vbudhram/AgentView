@@ -693,6 +693,27 @@ html, body {
 }
 /* "show all" lifts the cap and expands the body inline */
 .tool-body-full { max-height: none; }
+/* sparse time markers: a centered stamp where a long gap starts */
+.time-divider {
+  display: flex; align-items: center; gap: 10px;
+  margin: 10px 0 6px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+.time-divider::before, .time-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+/* terminal marker: the transcript is over, nothing is coming */
+.conv-ended {
+  margin: 14px 0 4px;
+  padding: 8px 0;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  border-top: 1px dashed var(--border-strong);
+}
 /* honest clip signal over the last lines of a capped body */
 .tool-fade {
   position: absolute;
