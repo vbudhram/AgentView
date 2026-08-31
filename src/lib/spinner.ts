@@ -26,7 +26,7 @@ const PENDING_MAX = 4096;
 // The third alternative consumes any other escape sequence (intermediates
 // then a final byte), e.g. charset designation ESC ( B, so its bytes never
 // leak into the grid as text.
-const TOKEN = /\u001b\[([0-9;:<=>?]*)[\x20-\x2f]*([\x40-\x7e])|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[\x20-\x2f]*[\x30-\x7e]|[\r\n\b]|[^\u001b\r\n\b]+|\u001b/g;
+const TOKEN = /\u001b\[([0-9;:<=>?]*)[\x20-\x2f]*([\x40-\x7e])|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[\x20-\x2f]*[\x30-\x7e]|[\r\n\b\t]|[^\u001b\r\n\b\t]+|\u001b/g;
 
 // True when the escape sequence starting at i is still missing its terminator.
 function incompleteFrom(s: string, i: number): boolean {
@@ -39,11 +39,25 @@ function incompleteFrom(s: string, i: number): boolean {
   return false;
 }
 
+// Character cell widths must match the real terminal's, or cursor-addressed
+// repaints land at wrong columns and interleave old and new frames into
+// garbled text (observed live: "more unse" for "more use" after a wide emoji).
+// Zero width: combining marks, joiners (ZWJ), variation selectors, BOM.
+const ZERO_RE = /[\p{Mn}\p{Me}\u200b-\u200f\u2060\ufe00-\ufe0f\ufeff]/u;
+// Double width: default-emoji-presentation chars plus East Asian Wide/Fullwidth.
+const WIDE_RE = /[\p{Emoji_Presentation}\u1100-\u115f\u2329\u232a\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua000-\ua4cf\ua960-\ua97f\uac00-\ud7a3\uf900-\ufaff\ufe10-\ufe19\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]|[\u{20000}-\u{3fffd}]/u;
+function charWidth(ch: string): 0 | 1 | 2 {
+  if (ch < '\u0300') return 1; // fast path: ASCII and Latin-1
+  if (ZERO_RE.test(ch)) return 0;
+  return WIDE_RE.test(ch) ? 2 : 1;
+}
+
 export class SpinnerScreen {
   private rows: (string[] | undefined)[] = [];
   private r = 0;
   private c = 0;
   private pending = '';
+  private saved: { r: number; c: number } | null = null;
   private decoder = new StringDecoder('utf8');
   private cols: number;
   private rowMax: number;
@@ -84,6 +98,7 @@ export class SpinnerScreen {
     this.rows = [];
     this.r = 0;
     this.c = 0;
+    this.saved = null;
     this.pending = '';
     this.decoder = new StringDecoder('utf8');
   }
@@ -115,11 +130,11 @@ export class SpinnerScreen {
     while ((m = TOKEN.exec(s))) {
       if (m[2] !== undefined) this.csi(m[1], m[2]);
       else if (m[0] === '\r') this.c = 0;
-      else if (m[0] === '\n') {
-        if (this.r >= this.rowMax - 1) this.rows.shift(); // scroll at the bottom
-        else this.r++;
-      }
+      else if (m[0] === '\n') this.lineFeed();
       else if (m[0] === '\b') this.c = Math.max(0, this.c - 1);
+      else if (m[0] === '\t') this.c = Math.min(Math.floor(this.c / 8) * 8 + 8, this.cols - 1);
+      else if (m[0] === '\u001b7') this.saved = { r: this.r, c: this.c };
+      else if (m[0] === '\u001b8') this.restoreCursor();
       else if (m[0][0] !== '\u001b') this.text(m[0]);
     }
   }
@@ -164,11 +179,31 @@ export class SpinnerScreen {
     }
   }
 
+  // Scroll at the bottom row, as the terminal does.
+  private lineFeed(): void {
+    if (this.r >= this.rowMax - 1) this.rows.shift();
+    else this.r++;
+  }
+
+  // DECRC restores the position DECSC saved (attributes are not modeled).
+  private restoreCursor(): void {
+    if (!this.saved) return;
+    this.r = Math.min(this.saved.r, this.rowMax - 1);
+    this.c = Math.min(this.saved.c, this.cols);
+  }
+
   private text(t: string): void {
-    const row = this.rows[this.r] ?? (this.rows[this.r] = []);
     for (const ch of t) {
-      if (this.c >= this.cols) break;
+      const w = charWidth(ch);
+      if (w === 0) continue;
+      // deferred autowrap: a char that no longer fits opens the next row
+      if (this.c + w > this.cols) {
+        this.lineFeed();
+        this.c = 0;
+      }
+      const row = this.rows[this.r] ?? (this.rows[this.r] = []);
       row[this.c++] = ch;
+      if (w === 2) row[this.c++] = ''; // continuation cell of a wide char
     }
   }
 }

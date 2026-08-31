@@ -32,6 +32,72 @@ describe('matchSpinner', () => {
   });
 });
 
+// Fidelity of the mirror snapshot: the grid must place characters at the
+// same columns a real terminal does, or cursor-addressed repaints interleave
+// old and new frames into garbled text (e.g. "lfcalhost" for "localhost").
+describe('SpinnerScreen fidelity', () => {
+  const line = (s: SpinnerScreen, i: number) => s.snapshot().lines[i];
+
+  it('wide emoji occupy two cells, so repaints land at true columns', () => {
+    // Reproduced from a live claude session: "✨ Get 2x more use" is painted,
+    // then a repaint addresses a word at its absolute column. A real
+    // terminal puts "Get" at column 4 (1-based) because ✨ is width 2.
+    const s = new SpinnerScreen(90, 30);
+    s.write('✨ Get 2x more use');
+    s.write('\u001b[4GGot');
+    expect(line(s, 0)).toBe('✨ Got 2x more use');
+  });
+
+  it('CJK characters occupy two cells', () => {
+    const s = new SpinnerScreen(90, 30);
+    s.write('漢字 ok');
+    s.write('\u001b[6Gno'); // 1-based col 6 = after 漢字 (4 cells) + space
+    expect(line(s, 0)).toBe('漢字 no');
+  });
+
+  it('text wraps at the last column instead of vanishing', () => {
+    const s = new SpinnerScreen(10, 5);
+    s.write('abcdefghijKLM');
+    expect(line(s, 0)).toBe('abcdefghij');
+    expect(line(s, 1)).toBe('KLM');
+  });
+
+  it('defers the wrap: a CR after a full row stays on that row', () => {
+    const s = new SpinnerScreen(10, 5);
+    s.write('abcdefghij\rX');
+    expect(line(s, 0)).toBe('Xbcdefghij');
+    // no second row was opened: the wrap stayed deferred
+    expect(line(s, 1) ?? '').toBe('');
+  });
+
+  it('a wide char that does not fit the row end wraps whole', () => {
+    const s = new SpinnerScreen(5, 5);
+    s.write('abcd漢');
+    expect(line(s, 0)).toBe('abcd');
+    expect(line(s, 1)).toBe('漢');
+  });
+
+  it('tab advances to the next 8-column stop', () => {
+    const s = new SpinnerScreen(40, 5);
+    s.write('ab\tc');
+    expect(line(s, 0)).toBe('ab      c');
+  });
+
+  it('zero-width marks (variation selectors, ZWJ) take no cell', () => {
+    const s = new SpinnerScreen(40, 5);
+    s.write('a\uFE0F\u200db');
+    s.write('\u001b[2GX');
+    expect(line(s, 0)).toBe('aX');
+  });
+
+  it('save/restore cursor (ESC 7 / ESC 8) round-trips the position', () => {
+    const s = new SpinnerScreen(40, 5);
+    s.write('\u001b[3;5Habc\u001b7\u001b[1;1Htop\u001b8DEF');
+    expect(line(s, 0)).toBe('top');
+    expect(line(s, 2)).toBe('    abcDEF');
+  });
+});
+
 describe('SpinnerScreen', () => {
   it('reads an ANSI-wrapped spinner line off the screen', () => {
     const raw = '\u001b[38;5;174m✢\u001b[39m \u001b[1mThinking…\u001b[22m \u001b[2m(3s · esc to interrupt)\u001b[22m';
