@@ -348,3 +348,133 @@ describe('BridgeServer', () => {
     await server.close();
   });
 });
+
+describe('BridgeServer zombie-wrapper pairing', () => {
+  const hello = (pid: number) =>
+    JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid }) + '\n';
+  const out = (s: string) =>
+    JSON.stringify({ t: 'out', d: Buffer.from(s).toString('base64') }) + '\n';
+  const tick = (store: SessionStore) => store.apply('claude', 'f1', {
+    events: [{ kind: 'assistant_message', ts: new Date().toISOString(), text: 'ping' }],
+    meta: undefined,
+  });
+
+  it('a wrapper that has not spoken cannot steal the key from one that has', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const clientA = createConnection(sock);
+    await new Promise((r) => clientA.on('connect', r));
+    clientA.write(hello(1));
+    clientA.write(out('screen A'));
+    await wait(150);
+
+    const clientB = createConnection(sock);
+    await new Promise((r) => clientB.on('connect', r));
+    clientB.write(hello(2));
+    await wait(150);
+
+    expect(server.forSessionKey('claude:f1')!.id).toBe('claude:1');
+    clientA.end(); clientB.end();
+    await server.close();
+  });
+
+  it('re-pairs to the wrapper that spoke last once the store ticks', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    // zombie: connects first, draws its screen once, then goes silent
+    const zombie = createConnection(sock);
+    await new Promise((r) => zombie.on('connect', r));
+    zombie.write(hello(1));
+    zombie.write(out('trust prompt'));
+    await wait(150);
+    expect(server.forSessionKey('claude:f1')!.id).toBe('claude:1');
+
+    // live wrapper: connects later and keeps producing output
+    const live = createConnection(sock);
+    await new Promise((r) => live.on('connect', r));
+    live.write(hello(2));
+    await wait(150);
+    live.write(out('live screen'));
+    await wait(150);
+
+    const repaired: string[] = [];
+    server.on('repair', (k: string) => repaired.push(k));
+    tick(store); // transcript activity triggers re-pairing
+    await wait(50);
+
+    expect(server.forSessionKey('claude:f1')!.id).toBe('claude:2');
+    expect(repaired).toContain('claude:f1');
+    expect(store.summaries()[0].steerable).toBe(true);
+
+    zombie.end(); live.end();
+    await server.close();
+  });
+
+  it('writeToKey unpairs a dead wrapper and the survivor claims the key', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const clientB = createConnection(sock);
+    await new Promise((r) => clientB.on('connect', r));
+    clientB.write(hello(2));
+    clientB.write(out('B spoke'));
+    await wait(150);
+
+    const clientA = createConnection(sock);
+    await new Promise((r) => clientA.on('connect', r));
+    clientA.write(hello(1));
+    clientA.write(out('A spoke later'));
+    await wait(150);
+    tick(store);
+    await wait(50);
+    expect(server.forSessionKey('claude:f1')!.id).toBe('claude:1');
+
+    // kill A's server-side socket without waiting for the close event
+    (server.get('claude:1') as any).socket.destroy();
+    const repaired: string[] = [];
+    server.on('repair', (k: string) => repaired.push(k));
+    expect(server.writeToKey('claude:f1', Buffer.from('reply'))).toBe(false);
+
+    // the dead bridge is unpaired on the spot; the live survivor owns the key
+    expect(server.forSessionKey('claude:f1')!.id).toBe('claude:2');
+    expect(repaired).toContain('claude:f1');
+    expect(server.writeToKey('claude:f1', Buffer.from('reply'))).toBe(true);
+    expect(store.summaries()[0].steerable).toBe(true);
+
+    clientA.destroy(); clientB.end();
+    await server.close();
+  });
+
+  it('a dead-socket bridge never pairs even when it is the only candidate', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(hello(1));
+    client.write(out('spoke'));
+    await wait(150);
+    expect(server.forSessionKey('claude:f1')).toBeDefined();
+
+    (server.get('claude:1') as any).socket.destroy();
+    expect(server.writeToKey('claude:f1', Buffer.from('x'))).toBe(false);
+    expect(server.forSessionKey('claude:f1')).toBeUndefined();
+    tick(store);
+    await wait(50);
+    expect(server.forSessionKey('claude:f1')).toBeUndefined();
+    expect(store.summaries()[0].steerable).toBe(false);
+
+    client.destroy();
+    await server.close();
+  });
+});

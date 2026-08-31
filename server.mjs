@@ -55,6 +55,20 @@ const onRequest = (req, res) => {
 };
 
 const wss = new WebSocketServer({ noServer: true });
+// Mirror sockets per session key. When the bridge re-pairs a key (a zombie
+// wrapper lost it, or its wrapper died), the attached mirrors are showing
+// the WRONG screen; close them so the client reconnects to the new bridge.
+const termConns = new Map(); // key -> Set<ws>
+let repairHooked = false;
+const hookRepair = (rt) => {
+  if (repairHooked || !rt?.bridge?.on) return;
+  repairHooked = true;
+  rt.bridge.on('repair', (key) => {
+    for (const conn of termConns.get(key) ?? []) {
+      try { conn.close(4005, 'repaired'); } catch {}
+    }
+  });
+};
 const onUpgrade = (req, socket, head) => {
   if (!hostAllowed(req)) { socket.destroy(); return; }
   const origin = req.headers.origin;
@@ -70,9 +84,13 @@ const onUpgrade = (req, socket, head) => {
     // The warm-up fetch boots the runtime inside Next's module graph,
     // which sets globalThis.__agentview for this handler.
     const rt = globalThis.__agentview;
+    hookRepair(rt);
     const key = url.searchParams.get('key') ?? '';
     const bridge = rt?.bridge?.forSessionKey(key);
     if (!bridge) { ws.close(4004, 'not steerable'); return; }
+    let conns = termConns.get(key);
+    if (!conns) { conns = new Set(); termConns.set(key, conns); }
+    conns.add(ws);
     // Server→client text frames are control JSON; binary frames are PTY bytes.
     // The size goes first so the mirror sets the exact grid before any bytes.
     ws.send(JSON.stringify({ t: 'size', cols: bridge.cols, rows: bridge.rows }));
@@ -85,12 +103,13 @@ const onUpgrade = (req, socket, head) => {
     });
     ws.on('message', (data, isBinary) => {
       if (isBinary) return;
-      // A write into a dead wrapper socket is a silently lost reply; tell
-      // the client so it can keep the text and warn the user.
-      const ok = bridge.write(Buffer.from(data.toString(), 'utf8'));
+      // Write through the CURRENT pairing: a failed write unpairs the dead
+      // wrapper so a live one can claim the key. A lost reply is never
+      // silent; the client keeps the text and warns the user.
+      const ok = rt.bridge.writeToKey(key, Buffer.from(data.toString(), 'utf8'));
       if (!ok && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'write_failed' }));
     });
-    ws.on('close', () => { unsub(); unsubResize(); });
+    ws.on('close', () => { unsub(); unsubResize(); conns.delete(ws); });
   });
 };
 

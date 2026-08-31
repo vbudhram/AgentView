@@ -38,6 +38,10 @@ class BridgeImpl extends EventEmitter implements Bridge {
   spinner: string | null = null;
   private spinnerAt = 0;
   public outdated = false;
+  // When this wrapper last produced PTY output; pairing prefers the bridge
+  // that demonstrably spoke last. Starts at 0: a wrapper that has not yet
+  // spoken must not outrank an incumbent.
+  public lastOutputAt = 0;
   constructor(
     public id: string, public agent: AgentKind, public cwd: string,
     private socket: Socket, public cols = 80, public rows = 24,
@@ -67,7 +71,13 @@ class BridgeImpl extends EventEmitter implements Bridge {
     return Buffer.from(out, 'utf8');
   }
 
+  // A dead socket cannot deliver a reply; it must never own a session.
+  get live(): boolean {
+    return !this.socket.destroyed && this.socket.writable;
+  }
+
   pushOutput(data: Buffer): void {
+    this.lastOutputAt = Date.now();
     this.chunks.push(data);
     this.size += data.length;
     while (this.size > SCROLLBACK_MAX) {
@@ -205,8 +215,10 @@ export class BridgeServer extends EventEmitter {
     // socket's close must not clobber the new bridge.
     if (this.bridges.get(bridge.id) !== bridge) return;
     this.bridges.delete(bridge.id);
+    const freed: string[] = [];
     for (const [key, id] of this.pairs) {
       if (id === bridge.id) {
+        freed.push(key);
         this.pairs.delete(key);
         this.store.setSpinner(key, null);
         this.store.setSteerable(key, false);
@@ -214,25 +226,59 @@ export class BridgeServer extends EventEmitter {
       }
     }
     this.pairAll(); // let a surviving bridge claim the freed key
+    // Attached mirrors must re-resolve: to the successor, or to an honest
+    // "not steerable" instead of a silent dead screen.
+    for (const key of freed) this.emit('repair', key);
   }
 
   private pairAll(): void {
+    // Group LIVE bridges by the session key their (agent, cwd) resolves to.
+    // A bridge with a dead socket never pairs: it cannot deliver a reply.
+    const byKey = new Map<string, BridgeImpl[]>();
     for (const bridge of this.bridges.values()) {
+      if (!bridge.live) continue;
       const key = this.store.findKeyByAgentCwd(bridge.agent, bridge.cwd);
       if (!key) continue;
+      const arr = byKey.get(key);
+      if (arr) arr.push(bridge);
+      else byKey.set(key, [bridge]);
+    }
+    for (const [key, candidates] of byKey) {
+      // With two wrappers in one cwd (exit-and-relaunch), the session must
+      // belong to the one that demonstrably spoke last, not to a zombie
+      // frozen at a startup prompt. On a tie the current pairing stays.
+      let best = candidates[0];
+      for (const b of candidates) {
+        if (b.lastOutputAt > best.lastOutputAt) best = b;
+      }
       const cur = this.pairs.get(key);
-      // A key paired to a live bridge keeps that pairing; this is the
-      // fixed point that stops re-entrant 'events' emissions.
-      if (cur && this.bridges.has(cur)) continue;
-      this.pairs.set(key, bridge.id);
+      if (cur === best.id) continue;
+      const curBridge = cur ? this.bridges.get(cur) : undefined;
+      if (curBridge?.live && curBridge.lastOutputAt >= best.lastOutputAt) continue;
+      this.pairs.set(key, best.id);
       this.store.setSteerable(key, true);
-      this.store.setWrapperOutdated(key, bridge.outdated);
-      if (bridge.spinner !== null) this.store.setSpinner(key, bridge.spinner);
+      this.store.setWrapperOutdated(key, best.outdated);
+      this.store.setSpinner(key, best.spinner);
       // the spinner moved to the current key; older keys of this bridge lose it
       for (const [k, id] of this.pairs) {
-        if (id === bridge.id && k !== key) this.store.setSpinner(k, null);
+        if (id === best.id && k !== key) this.store.setSpinner(k, null);
       }
+      // A takeover from another bridge: attached mirrors are showing the
+      // loser's screen; tell them to re-attach.
+      if (curBridge) this.emit('repair', key);
     }
+  }
+
+  // Write through the CURRENT pairing. A failed write unpairs the dead
+  // bridge on the spot so a surviving wrapper can claim the key; the caller
+  // still reports the failure so no reply is silently swallowed.
+  writeToKey(key: string, data: Buffer): boolean {
+    const id = this.pairs.get(key);
+    const bridge = id ? this.bridges.get(id) : undefined;
+    if (!bridge) return false;
+    const ok = bridge.write(data);
+    if (!ok) this.drop(bridge);
+    return ok;
   }
 
   listen(): Promise<void> {
