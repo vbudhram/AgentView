@@ -74,9 +74,14 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
   const fitRef = useRef(fit);
   fitRef.current = fit;
   const [compose, setCompose] = useState('');
-  // A send that did not reach the PTY: the compose keeps its text and this
-  // warning shows until a later send goes through.
-  const [sendFailed, setSendFailed] = useState(false);
+  // Delivery failures are said in words, never only shown as button chrome:
+  // 'link'  — bytes did not reach the PTY (socket down / wrapper dead);
+  // 'enter' — the text reached the terminal but the submit Enter did not.
+  const [fail, setFail] = useState<null | 'link' | 'enter'>(null);
+  // Last composed text, so a write_failed that arrives after the compose
+  // cleared can restore it for retry.
+  const lastSent = useRef('');
+  const enterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Jump-to-latest: shown when the user scrolls off the bottom; pulses when
   // new output lands while detached.
   const [detached, setDetached] = useState(false);
@@ -175,7 +180,13 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
                 term?.resize(msg.cols, msg.rows);
                 requestAnimationFrame(() => { rescale(); pinToBottom(); });
               } else if (msg?.t === 'write_failed') {
-                setSendFailed(true); // the server could not reach the wrapper
+                // The server could not reach the wrapper. The compose may
+                // already be cleared; put the text back so retry is one tap.
+                // A pending deferred Enter must die with the failed text —
+                // it would land blind in whatever wrapper pairs next.
+                if (enterTimer.current) { clearTimeout(enterTimer.current); enterTimer.current = null; }
+                setCompose((c) => c || lastSent.current);
+                setFail('link');
               }
             } catch {}
             return;
@@ -196,7 +207,7 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
         };
       };
       connect();
-      term.onData((d) => { if (!sendBytesRef.current(d)) setSendFailed(true); });
+      term.onData((d) => { sendBytesRef.current(d); }); // a failed send raises the fail row itself
     })();
     return () => {
       disposed = true;
@@ -213,11 +224,11 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
   const sendBytes = (s: string): boolean => {
     const ws = wsRef.current;
     if (ws?.readyState !== WebSocket.OPEN) {
-      setSendFailed(true);
+      setFail('link');
       return false;
     }
     ws.send(s);
-    setSendFailed(false);
+    setFail(null);
     pinned.current = true;
     pinToBottom();
     setDetached(false);
@@ -226,6 +237,7 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
   };
   const sendBytesRef = useRef(sendBytes);
   sendBytesRef.current = sendBytes;
+  useEffect(() => () => { if (enterTimer.current) clearTimeout(enterTimer.current); }, []);
   const sendGuard = useRef(0);
   const sendCompose = () => {
     if (Date.now() - sendGuard.current < 500) return; // pointerdown + submit dedupe
@@ -233,7 +245,25 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
     // An empty compose must never send a bare Enter — a pocket tap could
     // accept a permission prompt sight-unseen. Enter stays on the ⏎ chip.
     if (!compose) return;
-    if (sendBytes(`${compose}\r`)) setCompose('');
+    lastSent.current = compose;
+    if (!sendBytes(compose)) return; // text kept, warning shown
+    setCompose('');
+    // The CLI's paste heuristic swallows a CR that arrives in the same
+    // chunk as the text, leaving the reply staged but unsubmitted. Send
+    // the Enter on its own after the paste window closes, so a send
+    // actually SUBMITS; if that Enter cannot be delivered, say so.
+    // The Enter goes only over the SAME socket the text went over — after
+    // a reconnect or re-pair a bare Enter would land blind.
+    const wsAtSend = wsRef.current;
+    if (enterTimer.current) clearTimeout(enterTimer.current);
+    enterTimer.current = setTimeout(() => {
+      enterTimer.current = null;
+      if (wsAtSend && wsAtSend === wsRef.current && wsAtSend.readyState === WebSocket.OPEN) {
+        wsAtSend.send('\r');
+      } else {
+        setFail('enter');
+      }
+    }, 250);
   };
 
   return (
@@ -301,9 +331,23 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
               SEND
             </button>
           </form>
-          {sendFailed && (
+          {fail === 'link' && (
             <div className="term-send-fail" role="alert">
-              ⚠ not delivered — no link to the terminal. Your text is kept; retry when the link is live.
+              <span>
+                ⚠ not delivered — {link === 'live' ? 'the agent did not receive this' : 'reconnecting to the terminal'}.
+                Your text is kept.
+              </span>
+              <button type="button" className="term-retry-btn" onClick={() => sendCompose()}>
+                retry
+              </button>
+            </div>
+          )}
+          {fail === 'enter' && (
+            <div className="term-send-fail" role="alert">
+              <span>⚠ typed into the terminal but NOT submitted.</span>
+              <button type="button" className="term-retry-btn" onClick={() => sendBytes('\r')}>
+                press ⏎ now
+              </button>
             </div>
           )}
         </div>
