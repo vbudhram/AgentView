@@ -136,13 +136,21 @@ function Item({ e }: { e: AgentEvent }) {
 const WINDOW = 250;
 const CHUNK = 250;
 
-export function ConversationView({ events }: { events: AgentEvent[] }) {
+export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier }: {
+  events: AgentEvent[];
+  // events the server holds before the loaded tail; tapping "show earlier"
+  // near the buffer's start asks the parent to widen the tail
+  earlierAvailable?: number;
+  onLoadEarlier?: () => void;
+}) {
   const visible = events.filter((e) => e.kind !== 'turn_status');
   const [shown, setShown] = useState(WINDOW);
   const earlierTap = useTapActivate(() => {
     const el = scrollRef.current;
     expandAnchor.current = el ? el.scrollHeight - el.scrollTop : null;
     setShown((n) => n + CHUNK);
+    // prefetch from the server before the local buffer runs out
+    if (start <= CHUNK && earlierAvailable > 0) onLoadEarlier?.();
   });
   // The window is anchored to the end, so live events never shift older rows.
   const start = Math.max(0, visible.length - shown);
@@ -214,9 +222,9 @@ export function ConversationView({ events }: { events: AgentEvent[] }) {
               no conversation events yet
             </div>
           )}
-          {start > 0 && (
+          {(start > 0 || earlierAvailable > 0) && (
             <button className="show-earlier-btn" {...earlierTap}>
-              ▲ show earlier ({start.toLocaleString()} more)
+              ▲ show earlier ({(start + earlierAvailable).toLocaleString()} more)
             </button>
           )}
           {windowed.map((e, i) => (

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentEvent, SessionSummary } from '@/lib/ui-types';
 import { ConversationView } from './ConversationView';
 import { ActivityFeed } from './ActivityFeed';
@@ -12,14 +12,33 @@ import { AgentAvatar } from './AgentAvatar';
 
 // Client-side transcript cache: revisiting a session renders instantly
 // instead of flashing "loading…". Bounded LRU, freshest last.
+// A snapshot is a TAIL of the transcript: `total` is the server-side event
+// count when it was taken, so a tailed snapshot is never mistaken for stale.
+type Snapshot = { events: AgentEvent[]; total: number };
 const MAX_CACHED = 10;
-const snapshotCache = new Map<string, AgentEvent[]>();
-function cachePut(key: string, events: AgentEvent[]): void {
+const snapshotCache = new Map<string, Snapshot>();
+function cachePut(key: string, snap: Snapshot): void {
   snapshotCache.delete(key);
-  snapshotCache.set(key, events);
+  snapshotCache.set(key, snap);
   if (snapshotCache.size > MAX_CACHED) {
     const oldest = snapshotCache.keys().next().value;
     if (oldest !== undefined) snapshotCache.delete(oldest);
+  }
+}
+
+// Opening a session fetches only this many trailing events (a 21MB transcript
+// must not be re-downloaded over Tailscale); "show earlier" widens the tail.
+const DEFAULT_TAIL = 400;
+const TAIL_STEP = 400;
+
+async function fetchTail(sessionKey: string, tail: number): Promise<Snapshot | null> {
+  try {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/events?tail=${tail}`);
+    const d = await r.json();
+    if (!Array.isArray(d.events)) return null;
+    return { events: d.events, total: Number.isFinite(d.total) ? d.total : d.events.length };
+  } catch {
+    return null;
   }
 }
 
@@ -107,7 +126,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
   onBack?: () => void;
 }) {
   // Seed from the cache so cycling with j/k never blanks the pane.
-  const [snapshot, setSnapshot] = useState<AgentEvent[] | null>(
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(
     () => snapshotCache.get(sessionKey) ?? null);
   // Steerable sessions open straight into their live terminal.
   const [tab, setTab] = useState<Tab>(session?.steerable ? 'terminal' : 'conversation');
@@ -147,21 +166,25 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
   useEffect(() => {
     let cancelled = false;
     setSnapshot(snapshotCache.get(sessionKey) ?? null);
-    fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/events`)
-      .then((r) => r.json())
-      .then((d) => {
-        const events = Array.isArray(d.events) ? d.events : [];
-        cachePut(sessionKey, events);
-        if (!cancelled) setSnapshot(events);
-      })
-      .catch(() => { if (!cancelled) setSnapshot((prev) => prev ?? []); });
+    // A revisit keeps its widened tail; a first open starts at the default.
+    const tail = Math.max(DEFAULT_TAIL, snapshotCache.get(sessionKey)?.events.length ?? 0);
+    fetchTail(sessionKey, tail).then((snap) => {
+      if (snap) {
+        cachePut(sessionKey, snap);
+        if (!cancelled) setSnapshot(snap);
+      } else if (!cancelled) {
+        setSnapshot((prev) => prev ?? { events: [], total: 0 });
+      }
+    });
     return () => { cancelled = true; };
   }, [sessionKey]);
 
   // The snapshot is authoritative. Live events are a suffix of the same stream,
   // so find the snapshot tail inside liveEvents and append only what follows it.
+  const snapEvents = snapshot?.events ?? null;
   const events = useMemo(() => {
-    if (!snapshot) return [];
+    if (!snapEvents) return [];
+    const snapshot = snapEvents;
     if (liveEvents.length === 0) return snapshot;
     if (snapshot.length === 0) return liveEvents;
     const tail = snapshot[snapshot.length - 1];
@@ -176,30 +199,47 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
     }
     // the snapshot tail predates the live stream: append only strictly newer events
     return [...snapshot, ...liveEvents.filter((e) => e.ts > tail.ts)];
-  }, [snapshot, liveEvents]);
+  }, [snapEvents, liveEvents]);
 
-  // If the store holds more events than the merge produced (e.g. the live buffer
-  // trimmed past its cap), the snapshot is stale: refetch it. The short delay
-  // skips transient leads where a summary frame lands before its events frame,
-  // and the throttle keeps a burst from hammering the API.
+  // Staleness: the snapshot covered `total` server events, and the merge
+  // appended `events.length - snapshot.length` live ones. Only when the store
+  // holds MORE than that (e.g. the live buffer trimmed past its cap) is the
+  // snapshot stale — a tailed snapshot alone must never trigger a refetch.
+  // The short delay skips transient leads where a summary frame lands before
+  // its events frame; the throttle keeps a burst from hammering the API.
+  const known = snapshot ? snapshot.total + Math.max(0, events.length - snapshot.events.length) : 0;
   const lastRefetch = useRef(0);
   useEffect(() => {
-    if (!snapshot || !session || session.eventCount <= events.length) return;
+    if (!snapshot || !session || session.eventCount <= known) return;
     let cancelled = false;
     const t = setTimeout(() => {
       if (Date.now() - lastRefetch.current < 2000) return;
       lastRefetch.current = Date.now();
-      fetch(`/api/sessions/${encodeURIComponent(sessionKey)}/events`)
-        .then((r) => r.json())
-        .then((d) => {
-          if (!Array.isArray(d.events)) return;
-          cachePut(sessionKey, d.events);
-          if (!cancelled) setSnapshot(d.events);
-        })
-        .catch(() => {});
+      fetchTail(sessionKey, Math.max(DEFAULT_TAIL, snapshot.events.length)).then((snap) => {
+        if (!snap) return;
+        cachePut(sessionKey, snap);
+        if (!cancelled) setSnapshot(snap);
+      });
     }, 400);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [session, snapshot, events.length, sessionKey]);
+  }, [session, snapshot, known, sessionKey]);
+
+  // "Show earlier" past the local buffer: widen the tail from the server.
+  const loadingEarlier = useRef(false);
+  const loadEarlier = useCallback(() => {
+    const cur = snapshotCache.get(sessionKey);
+    if (loadingEarlier.current) return;
+    loadingEarlier.current = true;
+    fetchTail(sessionKey, (cur?.events.length ?? 0) + TAIL_STEP).then((snap) => {
+      loadingEarlier.current = false;
+      if (!snap) return;
+      cachePut(sessionKey, snap);
+      setSnapshot(snap);
+    });
+  }, [sessionKey]);
+  // Events on the server before the snapshot's first one (turn_status included,
+  // so the expander count is approximate for the conversation view).
+  const earlierAvailable = snapshot ? Math.max(0, snapshot.total - snapshot.events.length) : 0;
 
   const soft = accentSoft(persona.hue);
   const project = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : null;
@@ -438,9 +478,9 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
         ) : snapshot === null ? (
           <LoadingSkeleton />
         ) : tab === 'conversation' ? (
-          <ConversationView events={events} />
+          <ConversationView events={events} earlierAvailable={earlierAvailable} onLoadEarlier={loadEarlier} />
         ) : (
-          <ActivityFeed events={events} />
+          <ActivityFeed events={events} earlierAvailable={earlierAvailable} onLoadEarlier={loadEarlier} />
         )}
       </div>
     </div>

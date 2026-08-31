@@ -41,7 +41,13 @@ function row(e: AgentEvent): { glyph: string; color: string; text: string; raw?:
 const WINDOW = 250;
 const CHUNK = 250;
 
-export function ActivityFeed({ events }: { events: AgentEvent[] }) {
+export function ActivityFeed({ events, earlierAvailable = 0, onLoadEarlier }: {
+  events: AgentEvent[];
+  // events the server holds before the loaded tail; tapping "show earlier"
+  // near the buffer's start asks the parent to widen the tail
+  earlierAvailable?: number;
+  onLoadEarlier?: () => void;
+}) {
   const [shown, setShown] = useState(WINDOW);
   const start = Math.max(0, events.length - shown);
   const windowed = events.slice(start);
@@ -83,16 +89,18 @@ export function ActivityFeed({ events }: { events: AgentEvent[] }) {
           no activity yet
         </div>
       )}
-      {start > 0 && (
+      {(start > 0 || earlierAvailable > 0) && (
         <button
           className="show-earlier-btn"
           onClick={() => {
             const el = scrollRef.current;
             expandAnchor.current = el ? el.scrollHeight - el.scrollTop : null;
             setShown((n) => n + CHUNK);
+            // prefetch from the server before the local buffer runs out
+            if (start <= CHUNK && earlierAvailable > 0) onLoadEarlier?.();
           }}
         >
-          ▲ show earlier ({start.toLocaleString()} more)
+          ▲ show earlier ({(start + earlierAvailable).toLocaleString()} more)
         </button>
       )}
       {windowed.map((e, i) => {
