@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SessionStore } from '../src/lib/store';
+import { SessionStore, asksQuestion } from '../src/lib/store';
 import type { ParsedLine } from '../src/lib/types';
 
 const at = (iso: string, text: string): ParsedLine => ({
@@ -20,11 +20,14 @@ describe('SessionStore', () => {
     s.apply('claude', 'f1', at('2026-08-26T10:00:00Z', 'x'));
     const later = new Date('2026-08-26T10:05:00Z');
     expect(s.summaries(later)[0].status).toBe('ended');
-    s.setAliveCwds(new Set(['/p']));
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
     // last event is a user_message -> idle
     expect(s.summaries(later)[0].status).toBe('idle');
-    // last event assistant_message -> needs_input
+    // last event a statement assistant_message -> waiting (no ask, no alarm)
     s.apply('claude', 'f1', { events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:01Z', text: 'done' }] });
+    expect(s.summaries(later)[0].status).toBe('waiting');
+    // a trailing question -> needs_input
+    s.apply('claude', 'f1', { events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:01.500Z', text: 'Ship it?' }] });
     expect(s.summaries(later)[0].status).toBe('needs_input');
     // last event tool_call without result -> blocked
     s.apply('claude', 'f1', { events: [{ kind: 'tool_call', ts: '2026-08-26T10:00:02Z', name: 'Bash', input: '{}' }] });
@@ -93,7 +96,7 @@ describe('SessionStore', () => {
       events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: 'Done.\nShould I also update the tests?' }],
       meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
     });
-    s.setAliveCwds(new Set(['/p']));
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
     const [sum] = s.summaries(new Date('2026-08-26T10:05:00Z'));
     expect(sum.status).toBe('needs_input');
     expect(sum.now).toBe('asked: Should I also update the tests?');
@@ -106,7 +109,7 @@ describe('SessionStore', () => {
       events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: long }],
       meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
     });
-    s.setAliveCwds(new Set(['/p']));
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
     const now = s.summaries(new Date('2026-08-26T10:05:00Z'))[0].now!;
     expect(now.startsWith('asked: Want me to fix it?')).toBe(true);
     expect(now.endsWith('…')).toBe(true);
@@ -123,21 +126,22 @@ describe('SessionStore', () => {
       events: [{ kind: 'tool_call', ts: '2026-08-26T10:00:00Z', name: 'Bash', input: JSON.stringify({ command: 'rm -rf build' }) }],
       meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
     });
-    s.setAliveCwds(new Set(['/p']));
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
     const [sum] = s.summaries(new Date('2026-08-26T10:05:00Z'));
     expect(sum.status).toBe('blocked');
     expect(sum.now).toBe('running Bash: rm -rf build');
   });
 
-  it('labels a non-question needs_input message with said:, and strips cd prefixes from commands', () => {
+  it('labels a non-question waiting message with said:, and strips cd prefixes from commands', () => {
     const s = new SessionStore();
     s.apply('claude', 'f1', {
       events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: 'Nothing to squash, and nothing to push.' }],
       meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
     });
-    s.setAliveCwds(new Set(['/p']));
-    expect(s.summaries(new Date('2026-08-26T10:05:00Z'))[0].now)
-      .toBe('said: Nothing to squash, and nothing to push.');
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
+    const [w] = s.summaries(new Date('2026-08-26T10:05:00Z'));
+    expect(w.status).toBe('waiting');
+    expect(w.now).toBe('said: Nothing to squash, and nothing to push.');
     s.apply('claude', 'f2', { events: [
       { kind: 'tool_call', ts: '2026-08-26T10:00:00Z', name: 'Bash', input: JSON.stringify({ command: 'cd /Users/me/proj && npm test' }) },
     ] });
@@ -157,7 +161,7 @@ describe('SessionStore', () => {
     s.apply('claude', 'needs', { events: [{ kind: 'assistant_message', ts: '2026-08-26T10:03:00Z', text: 'done?' }], meta: { sessionId: 'n', cwd: '/n', source: 'terminal' } });
     s.apply('claude', 'idle', { events: [{ kind: 'user_message', ts: '2026-08-26T10:02:00Z', text: 'x' }], meta: { sessionId: 'i', cwd: '/i', source: 'terminal' } });
     s.apply('claude', 'ended', ev('assistant_message', '2026-08-26T10:04:00Z'));
-    s.setAliveCwds(new Set(['/w', '/b', '/n', '/i']));
+    s.setAliveCounts(new Map([['claude:/w', 1], ['claude:/b', 1], ['claude:/n', 1], ['claude:/i', 1]]));
     const order = s.summaries(new Date('2026-08-26T10:05:00Z')).map((x) => x.key);
     // needs_input pins the top; blocked shares the working band (recency inside it)
     expect(order).toEqual(['claude:needs', 'claude:working', 'claude:blocked', 'claude:idle', 'claude:ended']);
@@ -168,7 +172,7 @@ describe('SessionStore', () => {
     // pending tool with fresher activity than the needs_input session
     s.apply('claude', 'pending', { events: [{ kind: 'tool_call', ts: '2026-08-26T10:04:00Z', name: 'Bash', input: '{}' }], meta: { sessionId: 'p', cwd: '/pnd', source: 'terminal' } });
     s.apply('claude', 'needs', { events: [{ kind: 'assistant_message', ts: '2026-08-26T09:30:00Z', text: 'done?' }], meta: { sessionId: 'n', cwd: '/n', source: 'terminal' } });
-    s.setAliveCwds(new Set(['/pnd', '/n']));
+    s.setAliveCounts(new Map([['claude:/pnd', 1], ['claude:/n', 1]]));
     const order = s.summaries(new Date('2026-08-26T10:20:00Z')).map((x) => x.key);
     expect(order).toEqual(['claude:needs', 'claude:pending']);
   });
@@ -178,7 +182,7 @@ describe('SessionStore', () => {
     s.apply('claude', 'f1', at('2026-08-26T10:00:00Z', 'x'));
     const later = new Date('2026-08-26T10:05:00Z');
     expect(s.summaries(later)[0]).toMatchObject({ status: 'ended', now: null });
-    s.setAliveCwds(new Set(['/p']));
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
     expect(s.summaries(later)[0]).toMatchObject({ status: 'idle', now: null });
   });
 
@@ -204,11 +208,32 @@ describe('SessionStore', () => {
     });
     s.apply('claude', 'old', msg('2026-08-26T08:00:00Z'));
     s.apply('claude', 'new', msg('2026-08-26T10:00:00Z'));
-    s.setAliveCwds(new Set(['/p']));
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
     const later = new Date('2026-08-26T10:05:00Z');
     const by = Object.fromEntries(s.summaries(later).map((x) => [x.key, x.status]));
-    expect(by['claude:new']).toBe('needs_input');
+    expect(by['claude:new']).toBe('waiting');
     expect(by['claude:old']).toBe('ended');
+  });
+
+  it('marks the N most recent sessions alive when N processes share a cwd', () => {
+    const s = new SessionStore();
+    const msg = (iso: string) => ({
+      events: [{ kind: 'assistant_message' as const, ts: iso, text: 'done' }],
+      meta: { sessionId: 'x', cwd: '/p', source: 'terminal' as const },
+    });
+    s.apply('claude', 'a', msg('2026-08-26T08:00:00Z'));
+    s.apply('claude', 'b', msg('2026-08-26T09:00:00Z'));
+    s.apply('claude', 'c', msg('2026-08-26T10:00:00Z'));
+    s.setAliveCounts(new Map([['claude:/p', 2]]));
+    const later = new Date('2026-08-26T10:05:00Z');
+    const by = Object.fromEntries(s.summaries(later).map((x) => [x.key, x.status]));
+    // two live processes in /p: the two most recent sessions are alive
+    expect(by['claude:c']).toBe('waiting');
+    expect(by['claude:b']).toBe('waiting');
+    expect(by['claude:a']).toBe('ended');
+    // counts are per agent kind: a codex process gives no claude session life
+    s.setAliveCounts(new Map([['codex:/p', 2]]));
+    expect(s.summaries(later).every((x) => x.status === 'ended')).toBe(true);
   });
 
   it('keeps the first cwd as the session identity when later lines cd elsewhere', () => {
@@ -229,5 +254,145 @@ describe('SessionStore', () => {
     expect(got).toEqual(['claude:f1']);
     expect(s.findKeyByAgentCwd('claude', '/p')).toBe('claude:f1');
     expect(s.findKeyByAgentCwd('codex', '/p')).toBeNull();
+  });
+});
+
+describe('asksQuestion', () => {
+  it('detects a trailing question mark on the last non-empty line', () => {
+    expect(asksQuestion('Done.\nShould I also update the tests?')).toBe(true);
+    expect(asksQuestion('Which file is canonical?  ')).toBe(true);
+    expect(asksQuestion('Is this right?**')).toBe(true);
+  });
+
+  it('detects clear ask phrasing in the final two sentences', () => {
+    expect(asksQuestion('The fix is ready. Want me to commit it.')).toBe(true);
+    expect(asksQuestion('Two options exist. Let me know which you prefer.')).toBe(true);
+    expect(asksQuestion('I can do A or B. Please confirm before I continue.')).toBe(true);
+  });
+
+  it('treats trailing statements as non-asks', () => {
+    expect(asksQuestion("Iteration 1's critic is running. I'll continue automatically when it reports")).toBe(false);
+    expect(asksQuestion('Armour builder is still running against the bar. I will report when it lands.')).toBe(false);
+    expect(asksQuestion('All tests pass.')).toBe(false);
+    expect(asksQuestion('')).toBe(false);
+  });
+
+  it('ignores an ask that only appears early in a long message', () => {
+    expect(asksQuestion('Should I refactor? I decided yes. I refactored it. All tests pass. The build is green.')).toBe(false);
+  });
+});
+
+describe('attention tiering', () => {
+  const aliveP = new Map([['claude:/p', 1]]);
+  const later = new Date('2026-08-26T10:05:00Z');
+
+  it('a completed turn ending in a statement is waiting, not needs_input', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', {
+      events: [
+        { kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: "I'll continue automatically when it reports" },
+        { kind: 'turn_status', ts: '2026-08-26T10:00:01Z', status: 'completed' },
+      ],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
+    });
+    s.setAliveCounts(aliveP);
+    const [sum] = s.summaries(later);
+    expect(sum.status).toBe('waiting');
+    expect(sum.now).toBe("said: I'll continue automatically when it reports");
+  });
+
+  it('a completed turn ending in a question is needs_input', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', {
+      events: [
+        { kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: 'Which option do you want?' },
+        { kind: 'turn_status', ts: '2026-08-26T10:00:01Z', status: 'completed' },
+      ],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
+    });
+    s.setAliveCounts(aliveP);
+    expect(s.summaries(later)[0].status).toBe('needs_input');
+  });
+
+  it('a completed turn with no assistant message is waiting', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', {
+      events: [{ kind: 'turn_status', ts: '2026-08-26T10:00:00Z', status: 'completed' }],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
+    });
+    s.setAliveCounts(aliveP);
+    expect(s.summaries(later)[0].status).toBe('waiting');
+  });
+});
+
+describe('approval escalation', () => {
+  const pending = (cwd: string): Parameters<SessionStore['apply']>[2] => ({
+    events: [{ kind: 'tool_call', ts: '2026-08-26T10:00:00Z', name: 'Bash', input: '{}' }],
+    meta: { sessionId: 'x', cwd, source: 'terminal' },
+  });
+
+  it('escalates a steerable pending tool whose spinner has been dead 90s', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', pending('/p'));
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
+    s.setSteerable('claude:f1', true);
+    s.setSpinner('claude:f1', 'Working…', new Date('2026-08-26T10:00:30Z'));
+    s.setSpinner('claude:f1', null, new Date('2026-08-26T10:01:00Z'));
+    // 60s after the spinner died: still calm
+    let [sum] = s.summaries(new Date('2026-08-26T10:02:00Z'));
+    expect(sum.status).toBe('blocked');
+    expect(sum.approvalLikely).toBe(false);
+    // 90s after: escalated
+    [sum] = s.summaries(new Date('2026-08-26T10:02:30Z'));
+    expect(sum.status).toBe('blocked');
+    expect(sum.approvalLikely).toBe(true);
+  });
+
+  it('stays calm while the spinner is live, and for non-steerable sessions', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'live', pending('/a'));
+    s.apply('claude', 'plain', pending('/b'));
+    s.setAliveCounts(new Map([['claude:/a', 1], ['claude:/b', 1]]));
+    s.setSteerable('claude:live', true);
+    s.setSpinner('claude:live', 'Working… (5m)');
+    const sums = s.summaries(new Date('2026-08-26T10:20:00Z'));
+    for (const sum of sums) {
+      expect(sum.status).toBe('blocked');
+      expect(sum.approvalLikely).toBe(false);
+    }
+  });
+
+  it('escalates a steerable session that never reported a spinner after 90s of pending', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', pending('/p'));
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
+    s.setSteerable('claude:f1', true);
+    expect(s.summaries(new Date('2026-08-26T10:01:00Z'))[0].approvalLikely).toBe(false);
+    expect(s.summaries(new Date('2026-08-26T10:01:30Z'))[0].approvalLikely).toBe(true);
+  });
+
+  it('sorts: needs_input, then escalated approvals, then waiting, working, idle, ended', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'needs', { events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: 'ok?' }], meta: { sessionId: 'n', cwd: '/n', source: 'terminal' } });
+    s.apply('claude', 'approve', { events: [{ kind: 'tool_call', ts: '2026-08-26T10:03:00Z', name: 'Bash', input: '{}' }], meta: { sessionId: 'a', cwd: '/a', source: 'terminal' } });
+    s.apply('claude', 'waiting', { events: [{ kind: 'assistant_message', ts: '2026-08-26T10:04:00Z', text: 'All done.' }], meta: { sessionId: 'w', cwd: '/w', source: 'terminal' } });
+    s.apply('claude', 'working', { events: [{ kind: 'user_message', ts: '2026-08-26T10:04:50Z', text: 'x' }], meta: { sessionId: 'g', cwd: '/g', source: 'terminal' } });
+    s.apply('claude', 'idle', { events: [{ kind: 'user_message', ts: '2026-08-26T10:02:00Z', text: 'x' }], meta: { sessionId: 'i', cwd: '/i', source: 'terminal' } });
+    s.apply('claude', 'ended', { events: [{ kind: 'assistant_message', ts: '2026-08-26T10:01:00Z', text: 'bye' }], meta: { sessionId: 'e', cwd: '/e', source: 'terminal' } });
+    s.setAliveCounts(new Map([['claude:/n', 1], ['claude:/a', 1], ['claude:/w', 1], ['claude:/g', 1], ['claude:/i', 1]]));
+    s.setSteerable('claude:approve', true);
+    const order = s.summaries(new Date('2026-08-26T10:05:00Z')).map((x) => x.key);
+    expect(order).toEqual(['claude:needs', 'claude:approve', 'claude:waiting', 'claude:working', 'claude:idle', 'claude:ended']);
+  });
+});
+
+describe('branch label hygiene', () => {
+  it('suppresses a detached-head HEAD branch label', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', {
+      events: [{ kind: 'user_message', ts: '2026-08-26T10:00:00Z', text: 'x' }],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal', gitBranch: 'HEAD' },
+    });
+    expect(s.summaries(new Date('2026-08-26T10:00:10Z'))[0].gitBranch).toBeNull();
   });
 });

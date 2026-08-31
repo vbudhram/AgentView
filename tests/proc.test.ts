@@ -11,7 +11,11 @@ const PS = [
 ].join('\n');
 
 describe('parsePsForAgents', () => {
-  it('matches claude and codex CLI binaries only', () => {
-    expect(parsePsForAgents(PS)).toEqual([123, 125, 128]);
+  it('matches claude and codex CLI binaries only, with their agent kind', () => {
+    expect(parsePsForAgents(PS)).toEqual([
+      { pid: 123, agent: 'claude' },
+      { pid: 125, agent: 'codex' },
+      { pid: 128, agent: 'claude' },
+    ]);
   });
 });

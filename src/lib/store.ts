@@ -4,13 +4,33 @@ import { describeToolCall } from './describe';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WORKING_MS = 30 * 1000;
+// A steerable session with a pending tool and a dead spinner this long is
+// almost certainly sitting at a permission prompt.
+const APPROVAL_ESCALATE_MS = 90 * 1000;
 
-export type SessionStatus = 'working' | 'needs_input' | 'blocked' | 'idle' | 'ended';
+export type SessionStatus = 'working' | 'needs_input' | 'waiting' | 'blocked' | 'idle' | 'ended';
+
+// Clear ask phrasing near the end of a message.
+const ASK_RE = /\b(want me to|should i|shall i|which (one|option)|confirm|approve|let me know|do you want|prefer)\b/i;
+
+// Does the message end by asking the user something? Yes when the last
+// non-empty line ends with '?', or the final two sentences carry clear ask
+// phrasing. A trailing statement ("I'll continue automatically…") is not
+// an ask; it must not raise the alarm.
+export function asksQuestion(text: string): boolean {
+  const lines = text.trim().split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return false;
+  const last = lines[lines.length - 1].replace(/[*_`)\]\s]+$/, '');
+  if (last.endsWith('?')) return true;
+  const sentences = lines.join(' ').split(/(?<=[.!?])\s+/).filter(Boolean);
+  return ASK_RE.test(sentences.slice(-2).join(' '));
+}
 
 export interface SessionSummary {
   key: string; agent: AgentKind; sessionId: string | null; cwd: string | null;
   source: SourceKind | null; title: string | null; lastActivity: string;
   status: SessionStatus; steerable: boolean; wrapperOutdated: boolean; eventCount: number;
+  approvalLikely: boolean;  // pending tool + dead spinner on a steerable session: likely a permission prompt
   lastTool: string | null;  // name of the most recent tool_call, for the working ticker
   gitBranch: string | null;
   now: string | null;  // status-aware one-liner: what the agent does or waits on
@@ -22,6 +42,7 @@ interface SessionRec {
   source: SourceKind | null; title: string | null; lastActivity: string;
   steerable: boolean; wrapperOutdated: boolean; events: AgentEvent[]; gitBranch: string | null;
   spinner: string | null;
+  spinnerClearedAt: number | null;  // when the live spinner last went null
 }
 
 // Head of a message: its first meaningful line, cut at a word boundary near 120
@@ -45,14 +66,15 @@ function cleanTitle(text: string): boolean {
 
 export class SessionStore extends EventEmitter {
   private sessions = new Map<string, SessionRec>();
-  private aliveCwds = new Set<string>();
+  // `${agent}:${cwd}` -> number of live agent processes launched from that cwd
+  private aliveCounts = new Map<string, number>();
 
   apply(agent: AgentKind, fileId: string, parsed: ParsedLine): void {
     if (parsed.events.length === 0 && !parsed.meta) return;
     const key = `${agent}:${fileId}`;
     let rec = this.sessions.get(key);
     if (!rec) {
-      rec = { agent, sessionId: null, cwd: null, source: null, title: null, lastActivity: new Date(0).toISOString(), steerable: false, wrapperOutdated: false, events: [], gitBranch: null, spinner: null };
+      rec = { agent, sessionId: null, cwd: null, source: null, title: null, lastActivity: new Date(0).toISOString(), steerable: false, wrapperOutdated: false, events: [], gitBranch: null, spinner: null, spinnerClearedAt: null };
       this.sessions.set(key, rec);
     }
     if (parsed.meta) {
@@ -72,7 +94,7 @@ export class SessionStore extends EventEmitter {
     if (parsed.events.length > 0) this.emit('events', { key, events: parsed.events });
   }
 
-  setAliveCwds(cwds: Set<string>): void { this.aliveCwds = cwds; }
+  setAliveCounts(counts: Map<string, number>): void { this.aliveCounts = counts; }
 
   setWrapperOutdated(key: string, on: boolean): void {
     const rec = this.sessions.get(key);
@@ -87,9 +109,12 @@ export class SessionStore extends EventEmitter {
     if (rec) { rec.steerable = on; this.emit('events', { key, events: [] }); }
   }
 
-  setSpinner(key: string, text: string | null): void {
+  setSpinner(key: string, text: string | null, at: Date = new Date()): void {
     const rec = this.sessions.get(key);
     if (!rec || rec.spinner === text) return;
+    // Track when the spinner dies: a pending tool with a long-dead spinner
+    // on a steerable session is the permission-prompt signal.
+    rec.spinnerClearedAt = text === null ? at.getTime() : null;
     rec.spinner = text;
     this.emit('events', { key, events: [] });
   }
@@ -106,37 +131,54 @@ export class SessionStore extends EventEmitter {
 
   summaries(now: Date = new Date()): SessionSummary[] {
     const out: SessionSummary[] = [];
-    // A live process in a cwd belongs to the MOST RECENT session there; older
-    // sessions in the same directory must not ride along as alive.
-    const latestByHome = new Map<string, string>();
+    // The N live processes launched from a cwd belong to the N MOST RECENT
+    // sessions there; older sessions in the same directory must not ride
+    // along as alive, but a second concurrent agent in one repo must.
+    const stampsByHome = new Map<string, string[]>();
     for (const rec of this.sessions.values()) {
       if (!rec.cwd) continue;
       const home = `${rec.agent}:${rec.cwd}`;
-      const cur = latestByHome.get(home);
-      if (!cur || rec.lastActivity > cur) latestByHome.set(home, rec.lastActivity);
+      const arr = stampsByHome.get(home);
+      if (arr) arr.push(rec.lastActivity);
+      else stampsByHome.set(home, [rec.lastActivity]);
     }
+    for (const arr of stampsByHome.values()) arr.sort((a, b) => (a < b ? 1 : -1));
     for (const [key, rec] of this.sessions) {
       const age = now.getTime() - new Date(rec.lastActivity).getTime();
       if (age > DAY_MS) continue;
       const last = rec.events[rec.events.length - 1];
-      const alive = !!rec.cwd && this.aliveCwds.has(rec.cwd)
-        && latestByHome.get(`${rec.agent}:${rec.cwd}`) === rec.lastActivity;
+      const home = rec.cwd ? `${rec.agent}:${rec.cwd}` : null;
+      const liveN = home ? this.aliveCounts.get(home) ?? 0 : 0;
+      const alive = !!home && liveN > 0
+        && (stampsByHome.get(home)?.indexOf(rec.lastActivity) ?? Infinity) < liveN;
+      const lastMsg = [...rec.events].reverse().find((e) => e.kind === 'assistant_message');
       let status: SessionStatus;
       if (age <= WORKING_MS) status = 'working';
       else if (!alive) status = 'ended';
       else if (last?.kind === 'tool_call') status = 'blocked';
-      else if (last?.kind === 'assistant_message' || (last?.kind === 'turn_status' && last.status === 'completed')) status = 'needs_input';
+      else if (last?.kind === 'assistant_message' || (last?.kind === 'turn_status' && last.status === 'completed')) {
+        // The alarm tier is earned only by an actual ask. A turn that ends on
+        // a statement is a calm "waiting", not a NEEDS YOU.
+        status = lastMsg?.kind === 'assistant_message' && asksQuestion(lastMsg.text) ? 'needs_input' : 'waiting';
+      }
       else status = 'idle';
+      // A pending tool with a LIVE spinner is real work: stay calm. The same
+      // pending tool on a steerable session whose spinner has been dead for
+      // APPROVAL_ESCALATE_MS is almost certainly a permission prompt: alarm.
+      // Non-steerable sessions have no spinner signal, so they stay calm.
+      let approvalLikely = false;
+      if (status === 'blocked' && rec.steerable && rec.spinner === null) {
+        const since = Math.max(new Date(rec.lastActivity).getTime(), rec.spinnerClearedAt ?? 0);
+        approvalLikely = now.getTime() - since >= APPROVAL_ESCALATE_MS;
+      }
       const lastTool = [...rec.events].reverse().find((e) => e.kind === 'tool_call');
       let nowLine: string | null = null;
       if (status === 'working' && lastTool?.kind === 'tool_call') {
         nowLine = describeToolCall(lastTool.name, lastTool.input);
-      } else if (status === 'needs_input') {
-        const lastMsg = [...rec.events].reverse().find((e) => e.kind === 'assistant_message');
+      } else if (status === 'needs_input' || status === 'waiting') {
         if (lastMsg?.kind === 'assistant_message') {
-          const head = messageHead(lastMsg.text);
-          // "asked:" only when it is a question; a statement gets an honest label
-          nowLine = `${head.includes('?') ? 'asked' : 'said'}: ${head}`;
+          // "asked:" only for a detected question; a statement gets an honest label
+          nowLine = `${status === 'needs_input' ? 'asked' : 'said'}: ${messageHead(lastMsg.text)}`;
         }
       } else if (status === 'blocked' && last?.kind === 'tool_call') {
         // A pending tool_call only proves the tool did not return yet. It can be
@@ -144,14 +186,20 @@ export class SessionStore extends EventEmitter {
         // truth ("running X"), never a hard approval claim.
         nowLine = `running ${describeToolCall(last.name, last.input)}`;
       }
-      out.push({ key, agent: rec.agent, sessionId: rec.sessionId, cwd: rec.cwd, source: rec.source, title: rec.title, lastActivity: rec.lastActivity, status, steerable: rec.steerable, wrapperOutdated: rec.wrapperOutdated, eventCount: rec.events.length, lastTool: lastTool?.kind === 'tool_call' ? lastTool.name : null, gitBranch: rec.gitBranch, now: nowLine, spinner: rec.spinner });
+      out.push({ key, agent: rec.agent, sessionId: rec.sessionId, cwd: rec.cwd, source: rec.source, title: rec.title, lastActivity: rec.lastActivity, status, steerable: rec.steerable, wrapperOutdated: rec.wrapperOutdated, eventCount: rec.events.length, approvalLikely, lastTool: lastTool?.kind === 'tool_call' ? lastTool.name : null, gitBranch: rec.gitBranch === 'HEAD' ? null : rec.gitBranch, now: nowLine, spinner: rec.spinner });
     }
-    // Triage order: needs_input is the only confirmed "needs you" and pins the
-    // top. A pending tool call (blocked) is working state, not an alarm, so it
-    // shares the working band. Recency breaks ties inside each band.
-    const RANK: Record<SessionStatus, number> = { needs_input: 0, working: 1, blocked: 1, idle: 2, ended: 3 };
+    // Triage order: a confirmed ask pins the top; a likely permission prompt
+    // sits just under it; a calm turn-ended "waiting" comes next. A pending
+    // tool call (blocked, spinner live or fresh) is working state, not an
+    // alarm, so it shares the working band. Recency breaks ties in each band.
+    const rankOf = (s: SessionSummary): number =>
+      s.status === 'needs_input' ? 0 :
+      s.approvalLikely ? 1 :
+      s.status === 'waiting' ? 2 :
+      s.status === 'working' || s.status === 'blocked' ? 3 :
+      s.status === 'idle' ? 4 : 5;
     return out.sort((a, b) =>
-      RANK[a.status] - RANK[b.status] || (a.lastActivity < b.lastActivity ? 1 : -1));
+      rankOf(a) - rankOf(b) || (a.lastActivity < b.lastActivity ? 1 : -1));
   }
 
   events(key: string): AgentEvent[] { return this.sessions.get(key)?.events ?? []; }
