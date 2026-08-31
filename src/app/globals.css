@@ -297,6 +297,15 @@ html, body {
   cursor: pointer;
 }
 
+/* view-only marker where the terminal tab would be: honest, not broken */
+.tab-btn.tab-viewonly {
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  text-transform: none;
+  cursor: pointer;
+}
+.tab-btn.tab-viewonly[aria-expanded='true'] { color: var(--amber); }
+
 .nav-row { transition: background-color 0.15s ease, border-color 0.15s ease; }
 .nav-row:focus-visible {
   outline: 1px solid var(--green);

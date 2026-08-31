@@ -285,6 +285,13 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
     if (session) setMuted(sessionKey, session.lastActivity, !muted);
   });
 
+  // View-only session (no av wrapper): where the terminal tab would be,
+  // say so and give the exact recovery instead of silently missing a tab.
+  const viewOnly = !!session && !session.steerable && session.source !== 'desktop';
+  const [viewOnlyOpen, setViewOnlyOpen] = useState(false);
+  const viewOnlyTap = usePressActivate(() => setViewOnlyOpen((o) => !o));
+  const relaunchCmd = session?.agent === 'codex' ? 'av codex resume' : 'av claude --continue';
+
   // Terminal chrome lives in the tab row (no sub-header): fit toggle + link dot.
   const [fitChoice, setFitChoice] = useState<boolean | null>(null);
   const fit = fitChoice ?? isMobile;
@@ -400,6 +407,16 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
             {t}
           </button>
         ))}
+        {viewOnly && (
+          <button
+            className="tab-btn tab-viewonly"
+            aria-expanded={viewOnlyOpen}
+            aria-label="terminal is view-only — how to enable it"
+            {...viewOnlyTap}
+          >
+            terminal: view-only
+          </button>
+        )}
         <span className="tab-row-tools">
           {session?.source === 'desktop' && !isMobile && (
             <button
@@ -432,6 +449,20 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
         </span>
       </div>
 
+      {viewOnly && viewOnlyOpen && (
+        <div className="session-info-strip">
+          <div style={{ color: 'var(--text)' }}>
+            view-only — this session was not launched with <code>av</code>, so
+            there is no live terminal here.
+          </div>
+          <div>
+            To steer it from your phone: exit the agent in its own terminal,
+            then relaunch it there with <code>{relaunchCmd}</code> to pick the
+            session back up.
+            {session?.cwd && <CopyCdButton cwd={session.cwd} />}
+          </div>
+        </div>
+      )}
       {session?.spinner ? (
         // The CLI's own live spinner line: the strip mirrors the terminal.
         <div className="strip" style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--green-deep)' }}>
