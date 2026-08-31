@@ -77,3 +77,39 @@ export function describeToolCall(name: string, input: string): string {
   }
   return n;
 }
+
+// Harness-injected wrappers arrive as user-role messages but are not the
+// owner's words. Detect them so the UI renders a system note, not "YOU".
+const SYSTEM_NOTE_TAGS = new Set([
+  'task-notification',
+  'system-reminder',
+  'system-warning',
+  'local-command-stdout',
+  'local-command-stderr',
+  'local-command-caveat',
+  'command-name',
+  'command-message',
+  'command-args',
+  'command-contents',
+]);
+
+export interface SystemNote { tag: string; summary: string }
+
+export function classifySystemNote(text: string): SystemNote | null {
+  const t = text.trim();
+  if (t.startsWith('Caveat:')) return { tag: 'caveat', summary: noteSummary(t) };
+  const m = /^<([a-z][a-z0-9-]*)(?:\s[^>]*)?>/.exec(t);
+  if (!m) return null;
+  const tag = m[1];
+  // Known harness tags always classify. Unknown hyphenated tags classify only
+  // when the whole message is wrapped by them; plain HTML tags never do.
+  const wrapped = new RegExp(`</${tag}>\\s*$`).test(t);
+  if (!SYSTEM_NOTE_TAGS.has(tag) && !(tag.includes('-') && wrapped)) return null;
+  return { tag, summary: noteSummary(t) };
+}
+
+function noteSummary(t: string): string {
+  const sm = /<summary>([\s\S]*?)<\/summary>/.exec(t);
+  const src = sm ? sm[1] : t;
+  return excerpt(src.replace(/<[^>\n]{1,120}>/g, ' '), 120);
+}

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentEvent } from '@/lib/ui-types';
-import { describeToolCall, prettyToolInput, shortToolName, stripAnsi } from '@/lib/describe';
+import { classifySystemNote, describeToolCall, prettyToolInput, shortToolName, stripAnsi, type SystemNote } from '@/lib/describe';
 import { useTapActivate } from '@/lib/mobile';
 
 // GFM (tables, autolinked URLs, strikethrough) plus theme-fitting renderers:
@@ -126,15 +126,40 @@ function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_r
   );
 }
 
+// Harness-injected user-role noise: a compact, muted, expandable note —
+// never attributed to the owner.
+function SystemNoteBlock({ note, text }: { note: SystemNote; text: string }) {
+  const [open, setOpen] = useState(false);
+  const toggleTap = useTapActivate(() => setOpen((o) => !o));
+  return (
+    <div style={{ margin: '2px 0' }}>
+      <button className="tool-toggle" {...toggleTap} style={{ color: 'var(--text-faint)' }}>
+        <span style={{ display: 'inline-block', width: 14 }}>{open ? '▾' : '▸'}</span>
+        ⚙ system · {note.tag}
+        {note.summary && <span className="tool-detail">{note.summary}</span>}
+      </button>
+      {open && (
+        <pre className="tool-body tool-body-full">
+          {text.slice(0, MAX_TOOL_BODY)}
+          {text.length > MAX_TOOL_BODY ? '\n… truncated' : ''}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function Item({ e }: { e: AgentEvent }) {
   switch (e.kind) {
-    case 'user_message':
+    case 'user_message': {
+      const note = classifySystemNote(e.text);
+      if (note) return <SystemNoteBlock note={note} text={e.text} />;
       return (
         <div className="msg-user">
           <div className="msg-label">YOU</div>
           <div className="md"><Markdown text={e.text} /></div>
         </div>
       );
+    }
     case 'assistant_message':
       return (
         <div className="md" style={{ padding: '5px 0' }}>
