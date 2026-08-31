@@ -52,8 +52,21 @@ pty.onExit(({ exitCode }) => { restore(); process.exit(exitCode); });
 // Bridge connection — best effort; the wrapper works without the app running.
 const sockPath = join(homedir(), '.agentview', 'bridge.sock');
 let sock = null;
+// Frames produced while the socket is down queue here (bounded) and flush on
+// reconnect, so a blip does not leave a hole in the mirror's byte stream.
+const QUEUE_MAX = 32 * 1024;
+let queue = [];
+let queueSize = 0;
 function send(msg) {
-  if (sock) sock.write(JSON.stringify(msg) + '\n');
+  const line = JSON.stringify(msg) + '\n';
+  if (sock) { sock.write(line); return; }
+  queue.push(line);
+  queueSize += line.length;
+  // overflow: drop the oldest frames; the CLI's next repaint restores the
+  // screen model, so losing the head of a long blip is safe
+  while (queueSize > QUEUE_MAX && queue.length > 1) {
+    queueSize -= queue.shift().length;
+  }
 }
 function connect() {
   const s = createConnection(sockPath);
@@ -64,6 +77,9 @@ function connect() {
       cols: pty.cols, rows: pty.rows,
       v: PROTOCOL_VERSION,
     }) + '\n');
+    for (const line of queue) s.write(line);
+    queue = [];
+    queueSize = 0;
   });
   let buf = '';
   s.on('data', (chunk) => {
@@ -83,5 +99,5 @@ function connect() {
 }
 connect();
 pty.onData((d) => {
-  if (sock) sock.write(JSON.stringify({ t: 'out', d: Buffer.from(d).toString('base64') }) + '\n');
+  send({ t: 'out', d: Buffer.from(d).toString('base64') });
 });

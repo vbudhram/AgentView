@@ -84,7 +84,11 @@ const onUpgrade = (req, socket, head) => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'size', cols, rows }));
     });
     ws.on('message', (data, isBinary) => {
-      if (!isBinary) bridge.write(Buffer.from(data.toString(), 'utf8'));
+      if (isBinary) return;
+      // A write into a dead wrapper socket is a silently lost reply; tell
+      // the client so it can keep the text and warn the user.
+      const ok = bridge.write(Buffer.from(data.toString(), 'utf8'));
+      if (!ok && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'write_failed' }));
     });
     ws.on('close', () => { unsub(); unsubResize(); });
   });

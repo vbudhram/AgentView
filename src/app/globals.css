@@ -896,6 +896,19 @@ html, body {
   cursor: pointer;
 }
 .term-send:active { background: rgba(74, 222, 128, 0.25); }
+/* empty compose: SEND is inert so a pocket tap cannot press Enter blind */
+.term-send:disabled {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: default;
+}
+.term-send-fail {
+  padding-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--amber);
+}
 
 /* fit-to-width / 1:1 toggle in the terminal header */
 .term-fit-btn {

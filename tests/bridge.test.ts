@@ -65,6 +65,27 @@ describe('BridgeServer', () => {
     await server.close();
   });
 
+  it('write reports delivery: true on a live socket, false after it dies', async () => {
+    const store = makeStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/p', pid: 42 }) + '\n');
+    await wait(200);
+
+    const bridge = server.forSessionKey('claude:f1')!;
+    expect(bridge.write(Buffer.from('ok'))).toBe(true);
+
+    client.destroy();
+    await wait(200);
+    // the held reference must not pretend a dead wrapper accepted the reply
+    expect(bridge.write(Buffer.from('lost'))).toBe(false);
+    await server.close();
+  });
+
   it('keeps a stable pairing with two bridges for the same agent+cwd', async () => {
     const store = makeStore();
     const sock = makeSock();

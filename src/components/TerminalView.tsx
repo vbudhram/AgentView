@@ -9,7 +9,7 @@ export type LinkState = 'connecting' | 'live' | 'closed' | 'unsteerable';
 export const LINK_LABEL: Record<LinkState, string> = {
   connecting: 'linking…',
   live: 'live mirror',
-  closed: 'link closed',
+  closed: 'no link — reconnecting…',
   unsteerable: 'not steerable',
 };
 export const LINK_COLOR: Record<LinkState, string> = {
@@ -74,6 +74,9 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
   const fitRef = useRef(fit);
   fitRef.current = fit;
   const [compose, setCompose] = useState('');
+  // A send that did not reach the PTY: the compose keeps its text and this
+  // warning shows until a later send goes through.
+  const [sendFailed, setSendFailed] = useState(false);
   // Jump-to-latest: shown when the user scrolls off the bottom; pulses when
   // new output lands while detached.
   const [detached, setDetached] = useState(false);
@@ -126,6 +129,7 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
     let ws: WebSocket | null = null;
     let term: Terminal | null = null;
     let ro: ResizeObserver | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     (async () => {
       const { Terminal } = await import('@xterm/xterm');
       if (disposed || !ref.current) return;
@@ -153,38 +157,50 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
       }
 
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      ws = new WebSocket(`${proto}://${location.host}/ws/term?key=${encodeURIComponent(sessionKey)}`);
-      wsRef.current = ws;
-      ws.binaryType = 'arraybuffer';
-      ws.onopen = () => { if (!disposed) setLink('live'); };
-      ws.onmessage = (m) => {
-        // Server text frames carry control JSON; binary frames carry PTY bytes.
-        if (typeof m.data === 'string') {
-          try {
-            const msg = JSON.parse(m.data);
-            if (msg?.t === 'size' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
-              term?.resize(msg.cols, msg.rows);
-              requestAnimationFrame(() => { rescale(); pinToBottom(); });
-            }
-          } catch {}
-          return;
-        }
-        term?.write(new Uint8Array(m.data as ArrayBuffer), pinToBottom);
-        if (!pinned.current) setHasNew(true);
-      };
-      ws.onclose = (e) => {
+      // A dropped link retries on its own: a phone blip must not leave a dead
+      // mirror behind a "live" dot. The server replays a clean snapshot on
+      // every attach, so a reconnect redraws correctly.
+      const connect = () => {
         if (disposed) return;
-        if (e.code === 4004) {
-          setLink('unsteerable');
-          term?.writeln('\r\n[not steerable — launch this session with `av`]');
-        } else {
-          setLink('closed');
-        }
+        ws = new WebSocket(`${proto}://${location.host}/ws/term?key=${encodeURIComponent(sessionKey)}`);
+        wsRef.current = ws;
+        ws.binaryType = 'arraybuffer';
+        ws.onopen = () => { if (!disposed) setLink('live'); };
+        ws.onmessage = (m) => {
+          // Server text frames carry control JSON; binary frames carry PTY bytes.
+          if (typeof m.data === 'string') {
+            try {
+              const msg = JSON.parse(m.data);
+              if (msg?.t === 'size' && Number.isInteger(msg.cols) && Number.isInteger(msg.rows)) {
+                term?.resize(msg.cols, msg.rows);
+                requestAnimationFrame(() => { rescale(); pinToBottom(); });
+              } else if (msg?.t === 'write_failed') {
+                setSendFailed(true); // the server could not reach the wrapper
+              }
+            } catch {}
+            return;
+          }
+          term?.write(new Uint8Array(m.data as ArrayBuffer), pinToBottom);
+          if (!pinned.current) setHasNew(true);
+        };
+        ws.onclose = (e) => {
+          if (disposed) return;
+          wsRef.current = null;
+          if (e.code === 4004) {
+            setLink('unsteerable');
+            term?.writeln('\r\n[not steerable — launch this session with `av`]');
+          } else {
+            setLink('closed');
+            retryTimer = setTimeout(connect, 2000);
+          }
+        };
       };
-      term.onData((d) => { if (ws?.readyState === WebSocket.OPEN) ws.send(d); });
+      connect();
+      term.onData((d) => { if (!sendBytesRef.current(d)) setSendFailed(true); });
     })();
     return () => {
       disposed = true;
+      clearTimeout(retryTimer);
       ro?.disconnect();
       ws?.close();
       wsRef.current = null;
@@ -192,23 +208,32 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
     };
   }, [sessionKey, rescale, setLink]);
 
-  const sendBytes = (s: string) => {
+  // True only when the frame left over an OPEN socket; a closed link keeps
+  // the text and raises the not-delivered warning instead of dropping bytes.
+  const sendBytes = (s: string): boolean => {
     const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(s);
-      pinned.current = true;
-      pinToBottom();
-      setDetached(false);
-      setHasNew(false);
+    if (ws?.readyState !== WebSocket.OPEN) {
+      setSendFailed(true);
+      return false;
     }
+    ws.send(s);
+    setSendFailed(false);
+    pinned.current = true;
+    pinToBottom();
+    setDetached(false);
+    setHasNew(false);
+    return true;
   };
+  const sendBytesRef = useRef(sendBytes);
+  sendBytesRef.current = sendBytes;
   const sendGuard = useRef(0);
   const sendCompose = () => {
     if (Date.now() - sendGuard.current < 500) return; // pointerdown + submit dedupe
     sendGuard.current = Date.now();
-    if (!compose) { sendBytes('\r'); return; }
-    sendBytes(`${compose}\r`);
-    setCompose('');
+    // An empty compose must never send a bare Enter — a pocket tap could
+    // accept a permission prompt sight-unseen. Enter stays on the ⏎ chip.
+    if (!compose) return;
+    if (sendBytes(`${compose}\r`)) setCompose('');
   };
 
   return (
@@ -268,12 +293,19 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
               type="submit"
               className="term-send"
               aria-label="send"
+              // an empty compose must not send anything (see sendCompose)
+              disabled={!compose}
               // touch-down send; preventDefault keeps the keyboard open
               onPointerDown={(e) => { e.preventDefault(); sendCompose(); }}
             >
               SEND
             </button>
           </form>
+          {sendFailed && (
+            <div className="term-send-fail" role="alert">
+              ⚠ not delivered — no link to the terminal. Your text is kept; retry when the link is live.
+            </div>
+          )}
         </div>
       )}
     </div>

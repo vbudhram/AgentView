@@ -16,7 +16,8 @@ export const SPINNER_STALE_MS = 5000;
 export interface Bridge {
   id: string; agent: AgentKind; cwd: string;
   cols: number; rows: number;
-  write(data: Buffer): void;
+  // false when the wrapper socket is gone: the byte did NOT reach the PTY
+  write(data: Buffer): boolean;
   onData(cb: (data: Buffer) => void): () => void;
   onResize(cb: (size: { cols: number; rows: number }) => void): () => void;
   scrollback(): Buffer;
@@ -99,8 +100,13 @@ class BridgeImpl extends EventEmitter implements Bridge {
     this.screen.reset(); // the leftover line must not re-match later
     this.setSpinner(null);
   }
-  write(data: Buffer): void {
+  write(data: Buffer): boolean {
+    // A destroyed or ending socket silently drops writes; report that so the
+    // UI can tell the user instead of losing the reply. Backpressure (a false
+    // return from socket.write) still queues, so it counts as delivered.
+    if (this.socket.destroyed || !this.socket.writable) return false;
     this.socket.write(JSON.stringify({ t: 'in', d: data.toString('base64') }) + '\n');
+    return true;
   }
   onData(cb: (data: Buffer) => void): () => void {
     this.on('data', cb);
