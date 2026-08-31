@@ -269,6 +269,7 @@ export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, 
   }, [visible.length]);
   const jumpToLatest = () => {
     if (anchor === 'start') { setAnchor('end'); setShown(WINDOW); }
+    pendingStart.current = false;
     stickRef.current = true;
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -309,7 +310,7 @@ export function ConversationView({ events, earlierAvailable = 0, onLoadEarlier, 
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    if (pendingStart.current) {
+    if (anchor === 'start' && pendingStart.current) {
       // hold the top until the full transcript has arrived
       el.scrollTop = 0;
       if (earlierAvailable === 0) pendingStart.current = false;
