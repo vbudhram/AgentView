@@ -672,7 +672,8 @@ html, body {
 }
 /* inline evidence on the collapsed row: dim, one line, gives way first */
 .tool-detail { color: var(--text-dim); margin-left: 8px; font-weight: 400; }
-/* capped so a dump never buries the conversation; the body scrolls inside */
+/* capped so a dump never buries the conversation; overflow is hidden (no
+   thumb-trapping inner scroll) and surfaced by .tool-fade + a show-all button */
 .tool-body {
   margin: 4px 0 6px 14px;
   padding: 8px 10px;
@@ -684,10 +685,22 @@ html, body {
   line-height: 1.5;
   color: var(--text-dim);
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   max-height: min(40vh, 420px);
-  overflow-y: auto;
+  overflow-y: hidden;
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* "show all" lifts the cap and expands the body inline */
+.tool-body-full { max-height: none; }
+/* honest clip signal over the last lines of a capped body */
+.tool-fade {
+  position: absolute;
+  left: 15px; right: 1px; bottom: 7px;
+  height: 44px;
+  pointer-events: none;
+  background: linear-gradient(rgba(0,0,0,0), var(--bg-raised));
+  border-radius: 0 0 4px 4px;
 }
 /* way back up from the bottom of a long body */
 .tool-collapse-btn {

@@ -49,14 +49,30 @@ function toolResultSummary(output: string, isError: boolean): { label: string; d
 
 function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_result' }> }) {
   const [open, setOpen] = useState(false);
+  // A capped body hides its overflow honestly: a fade plus a "show all"
+  // button instead of a silent inner scroll region that traps the thumb.
+  const [full, setFull] = useState(false);
+  const [moreLines, setMoreLines] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
-  const toggleTap = useTapActivate(() => setOpen((o) => !o));
+  const bodyRef = useRef<HTMLPreElement>(null);
+  const toggleTap = useTapActivate(() => { setOpen((o) => !o); setFull(false); });
+  const showAllTap = useTapActivate(() => setFull(true));
   // Bottom collapse: a long body strands the reader far from the toggle, so
   // close from the end and bring the toggle row back into view.
   const collapseTap = useTapActivate(() => {
     setOpen(false);
+    setFull(false);
     rootRef.current?.scrollIntoView({ block: 'nearest' });
   });
+  useLayoutEffect(() => {
+    if (!open || full) { setMoreLines(0); return; }
+    const el = bodyRef.current;
+    if (!el) return;
+    const hidden = el.scrollHeight - el.clientHeight;
+    if (hidden <= 4) { setMoreLines(0); return; }
+    const lineH = parseFloat(getComputedStyle(el).lineHeight) || 16;
+    setMoreLines(Math.max(1, Math.round(hidden / lineH)));
+  }, [open, full]);
   const isCall = e.kind === 'tool_call';
   const glyph = isCall ? '→' : e.isError ? '✗' : '✓';
   const color = isCall ? 'var(--cyan)' : e.isError ? 'var(--red)' : 'var(--green-deep)';
@@ -86,11 +102,19 @@ function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_r
             transition={{ duration: 0.2, ease: 'easeOut' }}
             style={{ overflow: 'hidden' }}
           >
-            <pre className="tool-body">
-              {body.slice(0, MAX_TOOL_BODY) || '(empty)'}
-              {body.length > MAX_TOOL_BODY ? '\n… truncated' : ''}
-            </pre>
-            {long && (
+            <div style={{ position: 'relative' }}>
+              <pre ref={bodyRef} className={`tool-body${full ? ' tool-body-full' : ''}`}>
+                {body.slice(0, MAX_TOOL_BODY) || '(empty)'}
+                {body.length > MAX_TOOL_BODY ? '\n… truncated' : ''}
+              </pre>
+              {moreLines > 0 && <div className="tool-fade" />}
+            </div>
+            {moreLines > 0 && (
+              <button className="tool-collapse-btn" {...showAllTap}>
+                ▾ show all ({moreLines} more lines)
+              </button>
+            )}
+            {long && moreLines === 0 && (
               <button className="tool-collapse-btn" {...collapseTap}>
                 ▴ collapse
               </button>
