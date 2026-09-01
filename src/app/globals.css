@@ -1,4 +1,4 @@
-/* AgentView — phosphor mission-control theme */
+/* AgentView: phosphor mission-control theme */
 
 :root {
   --bg: #0a0d0b;
@@ -211,16 +211,6 @@ html, body {
   0%, 100% { transform: scale(1); opacity: 1; box-shadow: 0 0 4px 0 rgba(74, 222, 128, 0.7); }
   50%      { transform: scale(1.55); opacity: 0.5; box-shadow: 0 0 10px 2px rgba(74, 222, 128, 0.35); }
 }
-/* needs_input: slow amber breathing ring */
-@keyframes breathe {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.65); }
-  50%      { box-shadow: 0 0 0 7px rgba(245, 158, 11, 0); }
-}
-/* blocked: faster, harder red alarm ring */
-@keyframes alarm {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.75); }
-  50%      { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
-}
 /* needs_input row: amber wash breathing behind the row */
 @keyframes glow-row {
   0%, 100% { background-color: rgba(245, 158, 11, 0.05); }
@@ -228,27 +218,26 @@ html, body {
 }
 
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.dot-working     { background: var(--green); animation: pulse-work 1.2s ease-in-out infinite; }
-.dot-needs_input { background: var(--amber-deep); animation: breathe 2.4s ease-out infinite; }
-.dot-blocked     { background: var(--red-deep); animation: alarm 0.9s ease-out infinite; }
-.dot-idle        { background: var(--idle); }
-.dot-ended       { background: transparent; border: 1px solid var(--ended); }
+.dot-working { background: var(--green); animation: pulse-work 1.2s ease-in-out infinite; }
 
 /* attention rows: pulse a few times on entry, then settle to a steady tint */
 .row-needs_input {
   background-color: rgba(245, 158, 11, 0.08);
   animation: glow-row 1.2s ease-in-out 3;
 }
-/* filled status chip: the loudest element on an attention row */
-.chip-needs {
+/* status chips share one shape; each variant sets its own colors below */
+.chip-needs, .chip-waiting, .chip-muted {
   font-family: var(--font-display);
   font-size: 9.5px;
-  font-weight: 700;
   letter-spacing: 0.07em;
   line-height: 15px;
   padding: 0 6px;
   border-radius: 3px;
   flex-shrink: 0;
+}
+/* filled status chip: the loudest element on an attention row */
+.chip-needs {
+  font-weight: 700;
   background: var(--amber);
   color: #1c1403;
 }
@@ -268,20 +257,16 @@ html, body {
 
 /* ---- agent avatar expressions ---------------------------------- */
 
-/* working antenna tip: soft phosphor pulse — the one steady "alive" signal */
+/* working antenna tip: soft phosphor pulse, the one steady "alive" signal */
 @keyframes av-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .av-tip-working { animation: av-glow 1.2s ease-in-out infinite; }
-/* blocked: alarmed flicker on entry, then steady */
-@keyframes av-alarm-fx { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
-.av-alarm { animation: av-alarm-fx 0.9s ease-in-out 4; }
 /* needs_input question glint: steady, no loop */
 .av-glint { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
-  .dot-working, .dot-needs_input, .dot-blocked,
-  .row-needs_input,
+  .dot-working, .row-needs_input,
   .typing i, .skeleton-bar,
-  .av-tip-working, .av-alarm { animation: none; }
+  .av-tip-working { animation: none; }
 }
 
 /* ---- nav widgets ----------------------------------------------- */
@@ -373,8 +358,8 @@ html, body {
   box-shadow: inset 0 -2px 0 var(--green);
 }
 
-/* the tab row also carries the terminal controls (fit toggle + link dot) —
-   no separate terminal sub-header */
+/* the tab row also carries the terminal controls (fit toggle + link dot),
+   so there is no separate terminal sub-header */
 .tab-row {
   display: flex;
   gap: 18px;
@@ -477,28 +462,14 @@ html, body {
 
 /* calm turn-ended marker: visible, never shouting */
 .chip-waiting {
-  font-family: var(--font-display);
-  font-size: 9.5px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  line-height: 15px;
-  padding: 0 6px;
-  border-radius: 3px;
-  flex-shrink: 0;
   border: 1px solid var(--border);
   color: var(--text-dim);
 }
 
 /* acknowledged alarm row in the list: quiet, out of the alarm count */
 .chip-muted {
-  font-family: var(--font-display);
-  font-size: 9.5px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  line-height: 15px;
-  padding: 0 6px;
-  border-radius: 3px;
-  flex-shrink: 0;
   border: 1px solid var(--border-strong);
   color: var(--text-faint);
 }
@@ -788,7 +759,6 @@ html, body {
   cursor: pointer;
 }
 
-/* "show earlier" expander atop windowed transcripts */
 /* "show earlier" and "jump to start" share one row at the top of the tail */
 .earlier-row { display: flex; gap: 8px; }
 .earlier-row .show-earlier-btn { flex: 1; min-width: 0; }
@@ -881,7 +851,7 @@ html, body {
   overflow-x: auto;
 }
 .md pre code { background: none; color: var(--text); padding: 0; font-size: 11.5px; }
-.md a { color: var(--cyan); text-decoration-color: rgba(103, 232, 249, 0.4); }
+.md a { color: var(--cyan); text-decoration-color: rgba(103, 232, 249, 0.4); overflow-wrap: anywhere; }
 .md blockquote {
   margin: 0 0 8px;
   padding: 2px 0 2px 10px;
@@ -906,7 +876,6 @@ html, body {
   white-space: nowrap;
 }
 .md tr:nth-child(even) td { background: rgba(217, 226, 218, 0.025); }
-.md a { overflow-wrap: anywhere; }
 
 /* ---- session detail chrome -------------------------------------- */
 
@@ -922,7 +891,7 @@ html, body {
   .pane-header { padding: calc(8px + env(safe-area-inset-top)) 14px 8px; gap: 8px; }
 }
 
-/* tappable ⓘ: the full cwd and glyph meanings live in the info strip only —
+/* tappable ⓘ: the full cwd and glyph meanings live in the info strip only;
    the header says project · branch once and nothing twice */
 .session-info-btn {
   background: none;
@@ -956,7 +925,7 @@ html, body {
   background: var(--bg-raised);
   padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
 }
-/* all keys fit the width — no scrolling, so touch-down send is safe */
+/* all keys fit the width, no scrolling, so touch-down send is safe */
 .term-keys {
   display: flex;
   gap: 4px;
