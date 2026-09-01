@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { homedir } from 'node:os';
 import type { AgentEvent, AgentKind, ParsedLine, SourceKind } from './types';
 import { describeToolCall } from './describe';
 
@@ -11,6 +12,28 @@ const SETTLE_MS = 5 * 1000;
 // A steerable session with a pending tool and a dead spinner this long is
 // almost certainly sitting at a permission prompt.
 const APPROVAL_ESCALATE_MS = 90 * 1000;
+
+// Agent tooling runs its own agents (claude-mem's observers alone can be 45+
+// sessions), and throwaway runs live in temp dirs. Neither is the owner's
+// work, and both drown the radar. Override with AGENTVIEW_IGNORE, a
+// colon-separated list of path prefixes.
+const IGNORED_PREFIXES: string[] = (process.env.AGENTVIEW_IGNORE
+  ? process.env.AGENTVIEW_IGNORE.split(':')
+  : [
+      `${homedir()}/.claude-mem`,
+      `${homedir()}/.claude`,
+      `${homedir()}/.codex`,
+      '/tmp',
+      '/private/tmp',
+      '/var/folders',
+    ]
+).map((p) => p.replace(/\/+$/, '')).filter(Boolean);
+
+// True for a session whose launch directory is tool machinery or scratch.
+export function isIgnoredCwd(cwd: string | null): boolean {
+  if (!cwd) return false;
+  return IGNORED_PREFIXES.some((p) => cwd === p || cwd.startsWith(`${p}/`));
+}
 
 export type SessionStatus = 'working' | 'needs_input' | 'waiting' | 'blocked' | 'idle' | 'ended';
 
@@ -96,6 +119,7 @@ export class SessionStore extends EventEmitter {
       // Later lines carry the agent's `cd` excursions, which must not re-home
       // the session (and would break process/bridge matching by launch dir).
       rec.cwd = rec.cwd ?? parsed.meta.cwd ?? null;
+      if (isIgnoredCwd(rec.cwd)) { this.sessions.delete(key); return; }
       rec.source = parsed.meta.source ?? rec.source;
       rec.gitBranch = parsed.meta.gitBranch ?? rec.gitBranch;
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SessionStore, asksQuestion } from '../src/lib/store';
+import { SessionStore, asksQuestion, isIgnoredCwd } from '../src/lib/store';
 import type { ParsedLine } from '../src/lib/types';
 
 const at = (iso: string, text: string): ParsedLine => ({
@@ -83,6 +83,27 @@ describe('SessionStore', () => {
     });
     // no live process -> ended as soon as the settle window passes
     expect(s.summaries(new Date('2026-08-26T10:00:06Z'))[0].status).toBe('ended');
+  });
+
+  it('ignores tool-machinery and scratch directories', () => {
+    const home = require('node:os').homedir();
+    expect(isIgnoredCwd(`${home}/.claude-mem/observer-sessions`)).toBe(true);
+    expect(isIgnoredCwd(`${home}/.codex/sessions`)).toBe(true);
+    expect(isIgnoredCwd('/private/tmp/agentview-loop-t1')).toBe(true);
+    // a real project keeps showing, including one that merely starts alike
+    expect(isIgnoredCwd(`${home}/Desktop/working/agentview`)).toBe(false);
+    expect(isIgnoredCwd(`${home}/.claude-mem-notes`)).toBe(false);
+    expect(isIgnoredCwd(null)).toBe(false);
+  });
+
+  it('never creates a session for an ignored directory', () => {
+    const s = new SessionStore();
+    const home = require('node:os').homedir();
+    s.apply('claude', 'obs', {
+      events: [{ kind: 'user_message', ts: '2026-08-26T10:00:00Z', text: 'internal' }],
+      meta: { sessionId: 'o1', cwd: `${home}/.claude-mem/observer-sessions`, source: 'terminal' },
+    });
+    expect(s.summaries(new Date('2026-08-26T10:00:05Z'))).toHaveLength(0);
   });
 
   it('drops sessions older than 24h from summaries', () => {
