@@ -11,6 +11,11 @@ import { SessionPane } from './SessionPane';
 
 const MAX_LIVE_EVENTS = 500; // per-key cap so a long-running dashboard stays bounded
 
+// One click swaps the nav between these widths; the drag handle still gives
+// fine control, and the chosen width is remembered.
+const NAV_DEFAULT = 320;
+const NAV_WIDE = 520;
+
 // Tiny data-URI favicon: a dot whose color mirrors the fleet status.
 function faviconFor(color: string, alert: boolean): string {
   const mark = alert
@@ -27,17 +32,13 @@ export function Dashboard() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [filter, setFilter] = useState<SourceKind | 'all'>('all');
   const [navW, setNavW] = useState(() => {
-    if (typeof window === 'undefined') return 320;
+    if (typeof window === 'undefined') return NAV_DEFAULT;
     try {
       const saved = Number(localStorage.getItem('agentview.navW'));
-      return saved >= 240 && saved <= 600 ? saved : 320;
-    } catch { return 320; }
+      return saved >= 240 && saved <= 600 ? saved : NAV_DEFAULT;
+    } catch { return NAV_DEFAULT; }
   });
   const [dragging, setDragging] = useState(false);
-  // One click swaps between the compact default and a wide list; the drag
-  // handle still gives fine control, and the chosen width is remembered.
-  const NAV_DEFAULT = 320;
-  const NAV_WIDE = 520;
   const toggleNavWidth = useCallback(() => {
     setNavW((w) => {
       const next = w >= (NAV_DEFAULT + NAV_WIDE) / 2 ? NAV_DEFAULT : NAV_WIDE;
@@ -173,7 +174,7 @@ export function Dashboard() {
 
   // Title + favicon radar: the needs-you count reaches the user before they
   // ever focus this window. It counts confirmed asks (needs_input) and likely
-  // permission prompts (approvalLikely) — never mere statements (waiting) or
+  // permission prompts (approvalLikely), never mere statements (waiting) or
   // a pending tool with a live spinner, which count as working. Muted
   // (acknowledged) sessions leave the count so it can reach zero.
   useEffect(() => {
@@ -246,7 +247,7 @@ export function Dashboard() {
         personas={personas}
         selectedKey={selectedKey}
         onSelect={select}
-        navWide={navW >= (320 + 520) / 2}
+        navWide={navW >= (NAV_DEFAULT + NAV_WIDE) / 2}
         onToggleWidth={toggleNavWidth}
         filter={filter}
         onFilter={setFilter}
@@ -255,8 +256,8 @@ export function Dashboard() {
         className={`nav-resizer${dragging ? ' dragging' : ''}`}
         title="drag to resize · double-click to reset"
         onDoubleClick={() => {
-          setNavW(320);
-          try { localStorage.setItem('agentview.navW', '320'); } catch {}
+          setNavW(NAV_DEFAULT);
+          try { localStorage.setItem('agentview.navW', String(NAV_DEFAULT)); } catch {}
         }}
         role="separator"
         aria-orientation="vertical"
