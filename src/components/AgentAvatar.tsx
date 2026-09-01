@@ -3,8 +3,7 @@ import { accentColor, accentDim } from '@/lib/persona';
 
 // Compact robot face whose expression tracks the session status.
 // Drawn for legibility at ~20px: few features, bold strokes, big eyes.
-// The small animations live in globals.css (.av-*) and switch off under
-// prefers-reduced-motion.
+// Animations live in globals.css (.av-*) and honor prefers-reduced-motion.
 export function AgentAvatar({ status, hue, size = 28 }: {
   status: SessionStatus; hue: number; size?: number;
 }) {
@@ -67,7 +66,7 @@ export function AgentAvatar({ status, hue, size = 28 }: {
 
       {status === 'blocked' && (
         <g>
-          {/* tool pending: patient watchful eyes, flat mouth — waiting calmly */}
+          {/* tool pending: calm watchful eyes, flat mouth */}
           <circle cx="12" cy="16.4" r="3.4" fill="#e8ecea" />
           <circle cx="20" cy="16.4" r="3.4" fill="#e8ecea" />
           <circle cx="12" cy="16.6" r="1.6" fill="#111614" />
