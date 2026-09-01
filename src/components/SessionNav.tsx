@@ -20,7 +20,7 @@ function rel(iso: string, now: number): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
-// A pending tool this old gets a quiet "may need approval" note — no alarm.
+// A pending tool this old gets a quiet "may need approval" note, no alarm.
 const APPROVAL_HINT_MIN = 10;
 
 // Row taps this soon after a real reorder are aimed at the OLD layout.
@@ -38,13 +38,9 @@ function projectLabel(cwd: string | null, dups: Set<string>): string {
   return parts.length >= 2 ? `${parts[parts.length - 2]}/${folder}` : folder;
 }
 
-function AgentBadge({ agent, mobile }: { agent: SessionSummary['agent']; mobile: boolean }) {
-  return <AgentLogo agent={agent} size={mobile ? 15 : 13} />;
-}
-
-function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, muted, flash }: {
+function Row({ s, persona, selected, onSelect, now, dups, mobile, muted, flash }: {
   s: SessionSummary; persona: Persona; selected: boolean; onSelect: (k: string) => void;
-  now: number; dups: Set<string>; showAgent: boolean; mobile: boolean;
+  now: number; dups: Set<string>; mobile: boolean;
   muted: boolean; flash: boolean;
 }) {
   const soft = accentSoft(persona.hue);
@@ -159,7 +155,7 @@ function Row({ s, persona, selected, onSelect, now, dups, showAgent, mobile, mut
           }}>
             {persona.name}
           </span>
-          {showAgent && <AgentBadge agent={s.agent} mobile={mobile} />}
+          <AgentLogo agent={s.agent} size={mobile ? 15 : 13} />
           {s.steerable && (
             <span
               title={s.wrapperOutdated ? 'wrapper outdated — restart this session to upgrade the mirror' : 'steerable'}
@@ -283,8 +279,6 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
     onSelect(k);
   };
 
-  // The agent badge distinguishes nothing when the whole fleet is one agent.
-
   // folder names that appear on more than one visible row
   const dups = useMemo(() => {
     const counts = new Map<string, number>();
@@ -364,7 +358,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
         <Row
           key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
           selected={s.key === selectedKey} onSelect={guardedSelect} now={now} dups={dups}
-          showAgent mobile={mobile}
+          mobile={mobile}
           muted={isMuted(s.key, s.lastActivity)} flash={s.key === flashKey}
         />
       ))}
@@ -376,7 +370,7 @@ export function SessionNav({ sessions, personas, selectedKey, onSelect, filter, 
         <Row
           key={s.key} s={s} persona={personas.get(s.key) ?? personaFor(s.key)}
           selected={s.key === selectedKey} onSelect={guardedSelect} now={now} dups={dups}
-          showAgent mobile={mobile}
+          mobile={mobile}
           muted={isMuted(s.key, s.lastActivity)} flash={s.key === flashKey}
         />
       ))}
