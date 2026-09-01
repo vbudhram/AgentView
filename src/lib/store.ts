@@ -63,6 +63,14 @@ function messageHead(text: string): string {
   return `${cut.slice(0, sp > 60 ? sp : 120).trimEnd()}…`;
 }
 
+// Backward scan; lib target is ES2022, so no Array#findLast.
+function findLastEvent(events: AgentEvent[], kind: AgentEvent['kind']): AgentEvent | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].kind === kind) return events[i];
+  }
+  return undefined;
+}
+
 // Markup-ish messages (<local-command-caveat>, Caveat: …) make bad titles.
 function cleanTitle(text: string): boolean {
   const t = text.trimStart();
@@ -194,7 +202,7 @@ export class SessionStore extends EventEmitter {
       const liveN = home ? this.aliveCounts.get(home) ?? 0 : 0;
       const alive = !!home && liveN > 0
         && (stampsByHome.get(home)?.indexOf(rec.lastActivity) ?? Infinity) < liveN;
-      const lastMsg = [...rec.events].reverse().find((e) => e.kind === 'assistant_message');
+      const lastMsg = findLastEvent(rec.events, 'assistant_message');
       const turnEnded = last?.kind === 'assistant_message'
         || (last?.kind === 'turn_status' && last.status === 'completed');
       let status: SessionStatus;
@@ -219,7 +227,7 @@ export class SessionStore extends EventEmitter {
         const since = Math.max(new Date(rec.lastActivity).getTime(), rec.spinnerClearedAt ?? 0);
         approvalLikely = now.getTime() - since >= APPROVAL_ESCALATE_MS;
       }
-      const lastTool = [...rec.events].reverse().find((e) => e.kind === 'tool_call');
+      const lastTool = findLastEvent(rec.events, 'tool_call');
       let nowLine: string | null = null;
       if (status === 'working' && lastTool?.kind === 'tool_call') {
         nowLine = describeToolCall(lastTool.name, lastTool.input);
