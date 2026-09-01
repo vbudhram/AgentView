@@ -75,8 +75,8 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
   fitRef.current = fit;
   const [compose, setCompose] = useState('');
   // Delivery failures are said in words, never only shown as button chrome:
-  // 'link'  — bytes did not reach the PTY (socket down / wrapper dead);
-  // 'enter' — the text reached the terminal but the submit Enter did not.
+  // 'link': bytes did not reach the PTY (socket down / wrapper dead).
+  // 'enter': the text reached the terminal but the submit Enter did not.
   const [fail, setFail] = useState<null | 'link' | 'enter'>(null);
   // Last composed text, so a write_failed that arrives after the compose
   // cleared can restore it for retry.
@@ -87,7 +87,7 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
   const [detached, setDetached] = useState(false);
   const [hasNew, setHasNew] = useState(false);
   // The mirror holds no output at all (screen drawn before the link came
-  // up); rendering silence looks broken — say it instead.
+  // up); rendering silence looks broken, so say it instead.
   const [noOutput, setNoOutput] = useState(false);
 
   const pinToBottom = () => {
@@ -187,8 +187,8 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
               } else if (msg?.t === 'write_failed') {
                 // The server could not reach the wrapper. The compose may
                 // already be cleared; put the text back so retry is one tap.
-                // A pending deferred Enter must die with the failed text —
-                // it would land blind in whatever wrapper pairs next.
+                // A pending deferred Enter must die with the failed text,
+                // or it lands blind in whatever wrapper pairs next.
                 if (enterTimer.current) { clearTimeout(enterTimer.current); enterTimer.current = null; }
                 setCompose((c) => c || lastSent.current);
                 setFail('link');
@@ -248,7 +248,7 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
   const sendCompose = () => {
     if (Date.now() - sendGuard.current < 500) return; // pointerdown + submit dedupe
     sendGuard.current = Date.now();
-    // An empty compose must never send a bare Enter — a pocket tap could
+    // An empty compose must never send a bare Enter: a pocket tap could
     // accept a permission prompt sight-unseen. Enter stays on the ⏎ chip.
     if (!compose) return;
     lastSent.current = compose;
@@ -258,7 +258,7 @@ export function TerminalView({ sessionKey, fit, onLinkChange }: {
     // chunk as the text, leaving the reply staged but unsubmitted. Send
     // the Enter on its own after the paste window closes, so a send
     // actually SUBMITS; if that Enter cannot be delivered, say so.
-    // The Enter goes only over the SAME socket the text went over — after
+    // The Enter goes only over the SAME socket the text went over; after
     // a reconnect or re-pair a bare Enter would land blind.
     const wsAtSend = wsRef.current;
     if (enterTimer.current) clearTimeout(enterTimer.current);
