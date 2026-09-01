@@ -40,7 +40,7 @@ export function isAlarm(s: Pick<SessionSummary, 'status' | 'approvalLikely'>): b
 }
 
 // Display order: an acknowledged (muted) alarm must never outrank an
-// unacknowledged one — it drops to the bottom of the alarm band. The rest
+// unacknowledged one, so it drops to the bottom of the alarm band. The rest
 // of the list keeps the server's order. Stable within each part.
 export function demoteMutedAlarms(
   list: SessionSummary[],

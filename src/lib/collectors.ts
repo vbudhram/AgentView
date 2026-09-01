@@ -16,8 +16,8 @@ export interface CollectorOpts {
   windowMs?: number;
 }
 
-// chokidar v5 dropped glob support, so we watch each root directly and
-// filter the relative path it reports with a RegExp instead of a glob.
+// chokidar v5 dropped glob support: watch each root directly and filter
+// the reported relative path with a RegExp instead.
 const CLAUDE_FILE_RE = /^[^/]+\/[^/]+\.jsonl$/; // matches `*/*.jsonl`
 const CODEX_FILE_RE = /(^|\/)rollout-[^/]*\.jsonl$/; // matches `**/rollout-*.jsonl`
 

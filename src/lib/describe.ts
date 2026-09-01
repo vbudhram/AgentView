@@ -49,13 +49,19 @@ export function plainText(s: string): string {
     .trim();
 }
 
-// Expanded tool input: "key: value" lines instead of raw JSON; long values cut.
-export function prettyToolInput(input: string): string {
-  let obj: Record<string, unknown> | null = null;
+// Tool input as a plain JSON object; null for arrays, scalars, or non-JSON
+// (codex arguments are not always JSON).
+function asJsonObject(input: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(input);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) obj = parsed;
-  } catch { /* not JSON: show as-is */ }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+  } catch { /* fall through */ }
+  return null;
+}
+
+// Expanded tool input: "key: value" lines instead of raw JSON; long values cut.
+export function prettyToolInput(input: string): string {
+  const obj = asJsonObject(input);
   if (!obj) return input;
   const lines: string[] = [];
   for (const [k, v] of Object.entries(obj)) {
@@ -66,14 +72,10 @@ export function prettyToolInput(input: string): string {
   return lines.join('\n') || input;
 }
 
-// e.g. "Bash: npm test", "Edit: store.ts", "Agent: Critic round 2" — never raw JSON.
+// e.g. "Bash: npm test", "Edit: store.ts", "Agent: Critic round 2", never raw JSON.
 export function describeToolCall(name: string, input: string): string {
   const n = shortToolName(name);
-  let obj: Record<string, unknown> | null = null;
-  try {
-    const parsed = JSON.parse(input);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) obj = parsed;
-  } catch { /* codex arguments are not always JSON */ }
+  const obj = asJsonObject(input);
   if (!obj) {
     const t = input.trim();
     return t && !t.startsWith('{') ? `${n}: ${excerpt(t, 60)}` : n;
@@ -133,7 +135,7 @@ function noteSummary(t: string): string {
 }
 
 // One-line result summary: shape first ("14 lines"), then a first line with
-// absolute paths reduced to basenames — never a run of path characters.
+// absolute paths reduced to basenames, never a run of path characters.
 export function describeToolResult(output: string, isError = false): string {
   const t = stripAnsi(output).trim();
   if (!t) return '(empty)';
