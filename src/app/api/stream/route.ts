@@ -8,14 +8,14 @@ export function GET() {
   let onEvents: (p: { key: string; events: unknown[] }) => void;
   let timer: ReturnType<typeof setInterval>;
   let closed = false;
+  const cleanup = () => {
+    closed = true;
+    store.off('events', onEvents);
+    clearInterval(timer);
+  };
 
   const stream = new ReadableStream({
     start(controller) {
-      const cleanup = () => {
-        closed = true;
-        store.off('events', onEvents);
-        clearInterval(timer);
-      };
       const send = (obj: unknown) => {
         if (closed) return;
         // enqueue throws after the client disconnects
@@ -50,9 +50,7 @@ export function GET() {
       timer = setInterval(() => { sendSessions(); if (++ticks % 15 === 0) heartbeat(); }, 1000);
     },
     cancel() {
-      closed = true;
-      store.off('events', onEvents);
-      clearInterval(timer);
+      cleanup();
     },
   });
 
