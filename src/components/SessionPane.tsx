@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AgentEvent, SessionSummary } from '@/lib/ui-types';
 import { ConversationView } from './ConversationView';
 import { ActivityFeed } from './ActivityFeed';
@@ -49,8 +49,21 @@ function relDur(iso: string, now: number): string {
   return `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
 }
 
-// A pending tool this old gets a quiet "may need approval" note — no alarm.
+// A pending tool this old gets a quiet "may need approval" note, no alarm.
 const APPROVAL_HINT_MIN = 10;
+
+// One-line truncation, used across the header and status strips.
+const ellipsis = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } as const;
+
+// Green activity strip with the typing dots; content varies by caller.
+function WorkingStrip({ children }: { children: ReactNode }) {
+  return (
+    <div className="strip" style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--green-deep)' }}>
+      <span className="typing" aria-label="working"><i /><i /><i /></span>
+      {children}
+    </div>
+  );
+}
 
 // There is no reply channel for non-steerable sessions; the honest fallback
 // is telling the user where the real prompt lives.
@@ -90,7 +103,6 @@ function CopyCdButton({ cwd }: { cwd: string }) {
     </button>
   );
 }
-
 
 // Back fires on touch-down (instant, and immune to taps whose synthetic
 // click never lands); the guard keeps the follow-up click from firing twice.
@@ -184,27 +196,26 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
   const snapEvents = snapshot?.events ?? null;
   const events = useMemo(() => {
     if (!snapEvents) return [];
-    const snapshot = snapEvents;
-    if (liveEvents.length === 0) return snapshot;
-    if (snapshot.length === 0) return liveEvents;
-    const tail = snapshot[snapshot.length - 1];
+    if (liveEvents.length === 0) return snapEvents;
+    if (snapEvents.length === 0) return liveEvents;
+    const tail = snapEvents[snapEvents.length - 1];
     let tailKey: string | null = null;
     for (let i = liveEvents.length - 1; i >= 0; i--) {
       // cheap ts precheck; stringify only candidates with a matching timestamp
       if (liveEvents[i].ts !== tail.ts) continue;
       tailKey ??= JSON.stringify(tail);
       if (JSON.stringify(liveEvents[i]) === tailKey) {
-        return [...snapshot, ...liveEvents.slice(i + 1)];
+        return [...snapEvents, ...liveEvents.slice(i + 1)];
       }
     }
     // the snapshot tail predates the live stream: append only strictly newer events
-    return [...snapshot, ...liveEvents.filter((e) => e.ts > tail.ts)];
+    return [...snapEvents, ...liveEvents.filter((e) => e.ts > tail.ts)];
   }, [snapEvents, liveEvents]);
 
   // Staleness: the snapshot covered `total` server events, and the merge
   // appended `events.length - snapshot.length` live ones. Only when the store
   // holds MORE than that (e.g. the live buffer trimmed past its cap) is the
-  // snapshot stale — a tailed snapshot alone must never trigger a refetch.
+  // snapshot stale; a tailed snapshot alone must never trigger a refetch.
   // The short delay skips transient leads where a summary frame lands before
   // its events frame; the throttle keeps a burst from hammering the API.
   const known = snapshot ? snapshot.total + Math.max(0, events.length - snapshot.events.length) : 0;
@@ -256,7 +267,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
   const project = session?.cwd ? session.cwd.split('/').filter(Boolean).pop() : null;
   // Tap-to-reveal session info: on touch there is no hover/title, so the ⓘ
   // toggles a strip with the full path and glyph meanings. The path itself
-  // lives ONLY there — the header shows project · branch once.
+  // lives ONLY there; the header shows project · branch once.
   const [infoOpen, setInfoOpen] = useState(false);
   const infoTap = usePressActivate(() => setInfoOpen((o) => !o));
 
@@ -318,8 +329,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{
             fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700,
-            letterSpacing: '0.04em', color: 'var(--text)', whiteSpace: 'nowrap',
-            overflow: 'hidden', textOverflow: 'ellipsis',
+            letterSpacing: '0.04em', color: 'var(--text)', ...ellipsis,
           }}>
             {project ?? sessionKey}
             {session?.gitBranch ? (
@@ -328,8 +338,7 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
           </div>
           <div style={{
             fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600,
-            letterSpacing: '0.04em', color: soft, whiteSpace: 'nowrap',
-            overflow: 'hidden', textOverflow: 'ellipsis',
+            letterSpacing: '0.04em', color: soft, ...ellipsis,
           }}>
             {persona.name}
             {session && (
@@ -470,16 +479,14 @@ export function SessionPane({ sessionKey, persona, session, liveEvents, isMobile
       )}
       {session?.spinner ? (
         // The CLI's own live spinner line: the strip mirrors the terminal.
-        <div className="strip" style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--green-deep)' }}>
-          <span className="typing" aria-label="working"><i /><i /><i /></span>
-          <span style={{ color: 'var(--green)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.spinner}</span>
-        </div>
+        <WorkingStrip>
+          <span style={{ color: 'var(--green)', ...ellipsis }}>{session.spinner}</span>
+        </WorkingStrip>
       ) : session?.status === 'working' ? (
-        <div className="strip" style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--green-deep)' }}>
-          <span className="typing" aria-label="working"><i /><i /><i /></span>
+        <WorkingStrip>
           working{session.now ? ' — ' : ''}
-          {session.now && <span style={{ color: 'var(--green)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.now}</span>}
-        </div>
+          {session.now && <span style={{ color: 'var(--green)', ...ellipsis }}>{session.now}</span>}
+        </WorkingStrip>
       ) : null}
       {(session?.status === 'needs_input' || session?.approvalLikely) && (
         <div className={`strip needs-strip${muted ? ' muted' : ' row-needs_input'}`}>
