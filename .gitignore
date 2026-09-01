@@ -3,3 +3,7 @@ node_modules/
 ai/
 .superpowers/
 tsconfig.tsbuildinfo
+
+# local server logs
+.dev-server.log
+.prod-server.log
