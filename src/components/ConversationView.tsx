@@ -126,7 +126,7 @@ function ToolBlock({ e }: { e: Extract<AgentEvent, { kind: 'tool_call' | 'tool_r
   );
 }
 
-// Harness-injected user-role noise: a compact, muted, expandable note —
+// Harness-injected user-role noise: a compact, muted, expandable note,
 // never attributed to the owner.
 function SystemNoteBlock({ note, text }: { note: SystemNote; text: string }) {
   const [open, setOpen] = useState(false);
