@@ -39,7 +39,7 @@ try {
   process.exit(1);
 }
 
-// Terminal passthrough — the user experience is unchanged.
+// Terminal passthrough; the user experience is unchanged.
 process.stdin.setRawMode?.(true);
 process.stdin.on('data', (d) => pty.write(d.toString()));
 pty.onData((d) => process.stdout.write(d));
@@ -49,7 +49,7 @@ process.stdout.on('resize', () => {
 });
 pty.onExit(({ exitCode }) => { restore(); process.exit(exitCode); });
 
-// Bridge connection — best effort; the wrapper works without the app running.
+// Bridge connection is best effort; the wrapper works without the app running.
 const sockPath = join(homedir(), '.agentview', 'bridge.sock');
 let sock = null;
 // Everything the PTY printed (bounded), replayed on every (re)connect. The
