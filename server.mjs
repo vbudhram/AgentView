@@ -24,8 +24,8 @@ await app.prepare();
 
 // Only local hosts are valid; a foreign Host header means DNS rebinding.
 // Tailscale access arrives via `tailscale serve`, which proxies to loopback
-// with the machine's *.ts.net name as Host — a name only the tailnet's own
-// MagicDNS can mint, so a rebinding page can never present it.
+// with the machine's *.ts.net name as Host. Only the tailnet's own MagicDNS
+// can mint that name, so a rebinding page can never present it.
 const tsIP = tailscaleIPv4();
 const ALLOWED_HOSTS = new Set(['localhost:4400', '127.0.0.1:4400', 'localhost', '127.0.0.1']);
 if (tsIP) { ALLOWED_HOSTS.add(tsIP); ALLOWED_HOSTS.add(`${tsIP}:4400`); }
@@ -116,9 +116,13 @@ const onUpgrade = (req, socket, head) => {
   });
 };
 
-const server = createServer(onRequest);
-server.on('upgrade', onUpgrade);
-server.listen(4400, '127.0.0.1', () => {
+const makeServer = () => {
+  const s = createServer(onRequest);
+  s.on('upgrade', onUpgrade);
+  return s;
+};
+
+makeServer().listen(4400, '127.0.0.1', () => {
   console.log('AgentView on http://localhost:4400');
   // Warm-up request boots the runtime singleton (collectors + proc poller) at start.
   fetch('http://127.0.0.1:4400/api/sessions').catch(() => {});
@@ -126,8 +130,7 @@ server.listen(4400, '127.0.0.1', () => {
 
 // Tailnet listener: same handlers, reachable only through WireGuard.
 if (tsIP) {
-  const tsServer = createServer(onRequest);
-  tsServer.on('upgrade', onUpgrade);
+  const tsServer = makeServer();
   tsServer.listen(4400, tsIP, () => {
     console.log(`AgentView on tailnet at http://${tsIP}:4400`);
   });
