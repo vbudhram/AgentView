@@ -65,6 +65,20 @@ describe('BridgeServer', () => {
     await server.close();
   });
 
+  it('never surfaces a boot session for an ignored directory', async () => {
+    const store = new SessionStore();
+    const sock = makeSock();
+    const server = new BridgeServer(store, sock);
+    await server.listen();
+    const client = createConnection(sock);
+    await new Promise((r) => client.on('connect', r));
+    client.write(JSON.stringify({ t: 'hello', agent: 'claude', cwd: '/tmp/scratch', pid: 99, cols: 80, rows: 24, v: 2 }) + '\n');
+    await wait(200);
+    expect(store.summaries().some((s) => s.key.startsWith('boot:'))).toBe(false);
+    client.end();
+    await server.close();
+  });
+
   it('write reports delivery: true on a live socket, false after it dies', async () => {
     const store = makeStore();
     const sock = makeSock();

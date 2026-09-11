@@ -3,7 +3,7 @@ import { createServer, type Server, type Socket } from 'node:net';
 import { unlinkSync, chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import type { SessionStore } from './store';
+import { isIgnoredCwd, type SessionStore } from './store';
 import type { AgentKind } from './types';
 import { SpinnerScreen } from './spinner';
 
@@ -247,6 +247,8 @@ export class BridgeServer extends EventEmitter {
       const key = this.store.findKeyByAgentCwd(bridge.agent, bridge.cwd);
       const bootKey = `boot:${bridge.id}`;
       if (!key) {
+        // An ignored directory never shows, not even as a boot row.
+        if (isIgnoredCwd(bridge.cwd)) continue;
         // No transcript yet: surface the wrapper itself as a boot session
         // so a startup prompt (trust folder, login) is answerable.
         if (this.pairs.get(bootKey) !== bridge.id) {

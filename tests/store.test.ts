@@ -106,6 +106,16 @@ describe('SessionStore', () => {
     expect(s.summaries(new Date('2026-08-26T10:00:05Z'))).toHaveLength(0);
   });
 
+  it('summarizes a long message by its trailing question, not its first line', () => {
+    const s = new SessionStore();
+    s.apply('claude', 'f1', {
+      events: [{ kind: 'assistant_message', ts: '2026-08-26T10:00:00Z', text: '1. Signal Green\n2. Amber\n3. Cyan\n\nWhich color do you want?' }],
+      meta: { sessionId: 's1', cwd: '/p', source: 'terminal' },
+    });
+    s.setAliveCounts(new Map([['claude:/p', 1]]));
+    expect(s.summaries(new Date('2026-08-26T10:00:06Z'))[0].now).toBe('asked: Which color do you want?');
+  });
+
   it('drops sessions older than 24h from summaries', () => {
     const s = new SessionStore();
     s.apply('claude', 'old', at('2026-08-24T10:00:00Z', 'x'));

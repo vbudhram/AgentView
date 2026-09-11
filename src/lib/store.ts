@@ -79,7 +79,9 @@ function messageHead(text: string): string {
   const lines = text.trim().split('\n')
     .map((l) => l.replace(/^[#>*\-\s]+/, '').replace(/<[^>\n]{0,80}>/g, ' ').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim())
     .filter(Boolean);
-  const line = lines.find((l) => l.length >= 10 || l.includes('?')) ?? lines[0] ?? '';
+  // The trailing question is what the agent waits on; a list above it is context.
+  const question = [...lines].reverse().find((l) => l.endsWith('?'));
+  const line = question ?? lines.find((l) => l.length >= 10) ?? lines[0] ?? '';
   if (line.length <= 120) return line;
   const cut = line.slice(0, 121);
   const sp = cut.lastIndexOf(' ');
