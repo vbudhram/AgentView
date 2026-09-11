@@ -99,9 +99,35 @@ tailnet can reach it. Nothing is exposed to your LAN or the internet.
 The address uses plain `http`. This is safe on a tailnet because WireGuard
 already encrypts the connection. HTTPS certificates are not required.
 
-The app has no login. Anyone on your tailnet can read your transcripts and type
-into wrapped sessions. Keep the tailnet private, or put a token in front of the
-app before you share it.
+The app has no login. Any device on your tailnet can read your transcripts and
+type into wrapped sessions. Keep the tailnet private, or put a token in front
+of the app before you share it.
+
+### Limit access with a Tailscale ACL
+
+By default every device on a tailnet can reach every other device. An ACL
+limits port 4400 to the devices you choose. Edit the policy at
+https://login.tailscale.com/admin/acls:
+
+```json
+{
+  "acls": [
+    {
+      "action": "accept",
+      "src":    ["my-phone", "my-mac"],
+      "dst":    ["my-mac:4400"]
+    }
+  ]
+}
+```
+
+Replace the names with your device names from the admin console. With this rule
+in place, a new or shared device on the tailnet cannot open the app. Keep
+two-factor authentication on the account you sign in to Tailscale with, because
+that account can enroll new devices.
+
+Never expose the app with `tailscale funnel`. Funnel publishes the port to the
+public internet, and the app has no login.
 
 ## Configuration
 
