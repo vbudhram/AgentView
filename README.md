@@ -1,158 +1,132 @@
 # AgentView
 
-A dashboard for the AI coding agents running on your machine, and a way to
-answer them from your phone.
+One screen for every AI coding agent on your Mac. See which one needs you, and
+answer it from your phone.
 
-It watches the transcript files Claude Code and Codex write while they work.
-Each session shows up with a name and a face, the ones that need you say so, and
-you can type back into any session you started through the wrapper.
+![AgentView with three sessions: one asking a question, one working, one done](docs/screenshot.png)
 
-## Why I built it
+AgentView reads the transcripts that Claude Code and Codex write while they
+work. Each session gets a name and a face. A session that asks you a question
+raises an amber alarm. A session that only finished talking gets a quiet
+"waiting" chip. Sessions you start through the `av` wrapper also stream their
+terminal to the browser, and you can type back.
 
-I kept running four or five agents at once, and the question was never "what is
-this one doing". It was "which one is sitting there waiting on me". Terminal
-tabs are useless for that. You end up cycling through them like a man checking
-whether he left the stove on.
+## Quick start
 
-So: one screen that answers it. Who needs you, where it is, what it is doing.
+Requires Node 20 or later.
 
-## What it does
+1. Clone and install:
 
-Finds sessions by itself. It reads `~/.claude/projects` and
-`~/.codex/sessions`, so terminal and Claude Desktop sessions both show up with
-no setup.
+   ```bash
+   git clone git@github.com:vbudhram/AgentView.git
+   cd AgentView
+   npm install
+   ```
 
-Knows a question from small talk. An agent that actually asks you something
-raises an amber alarm. An agent that just finished talking gets a quiet
-"waiting" chip. This distinction took a few rounds to get right, and it is the
-difference between a dashboard you trust and one you learn to ignore.
+2. Build and start:
 
-Mirrors the real terminal. Wrapped sessions stream every byte, so you see the
-actual screen, spinner and status line included.
+   ```bash
+   npm run build
+   npm start
+   ```
 
-Takes your reply, from a laptop or a phone. There is a key bar for Escape, Tab,
-Ctrl+C, the arrows, and Enter, because a phone keyboard has none of them.
+3. Open http://127.0.0.1:4400. Sessions from `~/.claude/projects` and
+   `~/.codex/sessions` appear with no setup.
 
-## Install
+## Type into a session
 
-Node 20 or later.
+Reading works for every session. To type into one, start it through the
+wrapper. The wrapper runs the agent in a pseudo terminal and streams it to the
+app. Your terminal works exactly as before.
 
-```bash
-git clone git@github.com:vbudhram/AgentView.git
-cd AgentView
-npm install
-npm run build
-npm start
-```
+1. Put `av` on your PATH:
 
-Open http://127.0.0.1:4400.
+   ```bash
+   npm link
+   ```
 
-Use `npm run dev` while you work on it. The server keeps its state in a
-long-lived singleton, so restart it after you touch anything in `src/lib`,
-`server.mjs`, or the API routes. Only client components hot reload.
+2. Start agents through it:
 
-## Typing back: the `av` wrapper
+   ```bash
+   av claude
+   av codex
+   ```
 
-Reading works for every session. To also type into one, start it through the
-wrapper, which runs the agent inside a pseudo terminal and streams it to the app.
+3. Optional. Make it the default:
 
-```bash
-npm link          # puts `av` on your PATH
-av claude         # instead of `claude`
-av codex          # instead of `codex`
-```
+   ```bash
+   echo "alias claude='av claude'" >> ~/.bash_profile
+   echo "alias codex='av codex'"  >> ~/.bash_profile
+   ```
 
-Set it and forget it:
-
-```bash
-echo "alias claude='av claude'" >> ~/.bash_profile
-echo "alias codex='av codex'"  >> ~/.bash_profile
-```
-
-Your terminal behaves exactly as before. The app gains a Terminal tab, a live
-mirror, and a reply box for that session. Sessions started without the wrapper
-stay read only, and the app tells you so instead of just hiding the tab.
-
-Already running something you want to steer? Exit it and pick it back up
-wrapped:
+To wrap a session that already runs, exit it and resume it wrapped:
 
 ```bash
 av claude --continue
 ```
 
-## From your phone
+A session started without the wrapper is read only. The app shows the reason
+and this command.
 
-The server also listens on your Tailscale address, so anything on your tailnet
-can open it:
+## Use it from your phone with Tailscale
 
-```
-http://<your-tailscale-ip>:4400
-```
+The server also listens on your Mac's Tailscale address. Only devices on your
+tailnet can reach it. Nothing is exposed to your LAN or the internet.
 
-Nothing is exposed to your LAN or the internet. It binds to loopback and the
-tailnet interface only, and rejects requests whose `Host` header is neither.
+1. Install [Tailscale](https://tailscale.com/download) on the Mac and on the
+   phone. Sign in to the same account on both.
 
-## How it works
+2. Find the Mac's Tailscale address. On the Mac:
 
-```
-transcript files ─▶ collectors ─▶ parsers ─▶ session store ─▶ SSE ─▶ browser
-   av wrapper ◀────▶ unix socket ◀───▶ bridge ◀───▶ WebSocket ◀────▶ terminal
-```
+   ```bash
+   tailscale ip -4
+   ```
 
-Collectors (`src/lib/collectors.ts`) watch both transcript directories and tail
-new lines. Parsers (`src/lib/parsers/`) flatten two different JSONL formats into
-one event model. The store (`src/lib/store.ts`) keeps sessions in memory, works
-out each one's status, and writes the one-line summary of what it is doing. The
-bridge (`src/lib/bridge.ts`) takes wrapper connections over a Unix socket,
-models the terminal screen, and relays bytes both ways.
+   If `tailscale` is not on your PATH (the App Store build), use the app's
+   own binary:
 
-Two things in there are easy to "clean up" and break, so before you touch them:
-the mirror renders at the terminal's exact grid size on purpose, because a
-redraw at the wrong width lands cursor moves on the wrong cells and smears the
-text. And a browser attaching mid-stream gets a fresh redraw built from the
-screen model, not raw scrollback, which can start halfway inside an escape
-sequence.
+   ```bash
+   /Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4
+   ```
 
-## Security
+   The Tailscale menu bar app also shows the address and the machine name.
 
-The trust boundary is your machine and your tailnet.
+3. On the phone, open `http://<that address>:4400`. You can also use the
+   MagicDNS name, for example `http://my-mac.tail1234.ts.net:4400`.
 
-The web server binds to loopback and the tailnet address only. It checks the
-`Host` header, and `Origin` on WebSocket upgrades, so a random web page cannot
-reach it by DNS rebinding. The bridge socket is `0600`.
+4. Add it to the home screen for a one-tap open.
 
-There is no authentication. Anyone who can reach the port can read your
-transcripts and type into wrapped sessions. That is fine for one person on a
-private tailnet. Put a token in front of it before that stops being true.
+The address uses plain `http`. This is safe on a tailnet because WireGuard
+already encrypts the connection. HTTPS certificates are not required.
+
+The app has no login. Anyone on your tailnet can read your transcripts and type
+into wrapped sessions. Keep the tailnet private, or put a token in front of the
+app before you share it.
 
 ## Configuration
 
-`AGENTVIEW_IGNORE` takes a colon-separated list of path prefixes to hide. It
-defaults to tool directories (`~/.claude-mem`, `~/.claude`, `~/.codex`) and temp
-directories. Without it, plugins that run their own agents bury your actual
-work: claude-mem's observers alone put 47 sessions in my list.
+`AGENTVIEW_IGNORE` is a colon-separated list of path prefixes to hide. The
+default hides tool directories (`~/.claude-mem`, `~/.claude`, `~/.codex`) and
+temp directories, so plugins that run their own agents do not bury your work.
 
-## Known limits
+```bash
+AGENTVIEW_IGNORE="$HOME/scratch:$HOME/.claude-mem" npm start
+```
 
-Claude Desktop sessions are read only. The desktop app talks to its agents over
-a private channel and nothing outside it can send input.
+## Limits
 
-The spinner ticker reads Claude Code's status line. Codex formats its own
-differently, so those sessions get a mirror but no ticker.
-
-The list covers the last 24 hours.
-
-A wrapper started before an upgrade keeps talking the old protocol until you
-restart that session. The app flags it rather than quietly rendering it wrong.
+- Claude Desktop sessions are read only. The desktop app uses a private channel
+  that nothing outside it can write to.
+- The spinner ticker reads Claude Code's status line. Codex sessions get a
+  terminal mirror but no ticker.
+- The list shows the last 24 hours.
+- A wrapper started before an upgrade keeps the old protocol until you restart
+  that session. The app marks it.
 
 ## Development
 
 ```bash
+npm run dev           # dev server; restart it after you change server code
 npm test              # vitest
 npx tsc --noEmit      # types
-npm run build         # production build
 ```
-
-Tests cover the parsers, the tailer, the store's status rules, the terminal
-screen model, and the bridge, including the case where two wrappers fight over
-the same session.
